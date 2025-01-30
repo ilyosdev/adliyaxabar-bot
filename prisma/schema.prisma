@@ -1,0 +1,41 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Channel {
+  id        Int       @id @default(autoincrement())
+  chatId    BigInt    @unique
+  title     String
+  type      String    @default("channel") // "channel" or "group"
+  addedAt   DateTime  @default(now())
+  messages  Message[] @relation("ChannelMessages")
+  isActive  Boolean   @default(true)
+}
+
+model Activity {
+  id              String    @id @default(uuid())
+  type            String    // "forward" or "direct"
+  originalContent String    @db.Text
+  createdAt       DateTime  @default(now())
+  isDeleted       Boolean   @default(false)
+  messages        Message[]
+}
+
+model Message {
+  id          Int      @id @default(autoincrement())
+  messageId   Int
+  channel     Channel  @relation("ChannelMessages", fields: [channelId], references: [id])
+  channelId   Int
+  activity    Activity @relation(fields: [activityId], references: [id])
+  activityId  String
+  createdAt   DateTime @default(now())
+
+  @@unique([channelId, messageId])
+} 
