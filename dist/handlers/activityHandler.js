@@ -24,7 +24,7 @@ async function showActivityLog(ctx, page = 0) {
             take: ITEMS_PER_PAGE
         });
         if (activities.length === 0) {
-            await ctx.reply('📭 No activities found in the log\\.');
+            await ctx.reply('📭 Faoliyat tarixi bo\'sh\\.');
             return;
         }
         const totalActivities = await prisma.activity.count({
@@ -34,12 +34,12 @@ async function showActivityLog(ctx, page = 0) {
         // Create activity buttons
         for (const activity of activities) {
             const content = JSON.parse(activity.originalContent);
-            const messagePreview = content.text || content.caption || 'Media content';
+            const messagePreview = content.text || content.caption || 'Media kontent';
             const previewText = messagePreview.length > 30 ? messagePreview.substring(0, 27) + '...' : messagePreview;
             const channelCount = activity.messages.length;
             const date = new Date(activity.createdAt).toLocaleTimeString();
             keyboard.push([
-                telegraf_1.Markup.button.callback(`${activity.type === 'forward' ? '↪️' : '📝'} ${date} • ${previewText} (${channelCount} ${channelCount === 1 ? 'channel' : 'channels'})`, `activity:${activity.id}`)
+                telegraf_1.Markup.button.callback(`${activity.type === 'forward' ? '↪️' : '📝'} ${date} • ${escapeMarkdown(previewText)} (${channelCount} ${channelCount === 1 ? 'kanal' : 'kanal'})`, `activity:${activity.id}`)
             ]);
         }
         // Add pagination buttons if needed
@@ -47,32 +47,32 @@ async function showActivityLog(ctx, page = 0) {
             const paginationButtons = [];
             // First page button
             if (page > 0) {
-                paginationButtons.push(telegraf_1.Markup.button.callback('« First', `page:0`));
+                paginationButtons.push(telegraf_1.Markup.button.callback('« Boshi', `page:0`));
             }
             // Previous/Next buttons
             if (page > 0) {
-                paginationButtons.push(telegraf_1.Markup.button.callback('‹ Prev', `page:${page - 1}`));
+                paginationButtons.push(telegraf_1.Markup.button.callback('‹ Oldingi', `page:${page - 1}`));
             }
             if ((page + 1) * ITEMS_PER_PAGE < totalActivities) {
-                paginationButtons.push(telegraf_1.Markup.button.callback('Next ›', `page:${page + 1}`));
+                paginationButtons.push(telegraf_1.Markup.button.callback('Keyingi ›', `page:${page + 1}`));
             }
             // Last page button
             const lastPage = Math.ceil(totalActivities / ITEMS_PER_PAGE) - 1;
             if (page < lastPage) {
-                paginationButtons.push(telegraf_1.Markup.button.callback('Last »', `page:${lastPage}`));
+                paginationButtons.push(telegraf_1.Markup.button.callback('Oxiri »', `page:${lastPage}`));
             }
             if (paginationButtons.length > 0) {
                 keyboard.push(paginationButtons);
             }
         }
         const pageInfo = totalActivities > ITEMS_PER_PAGE
-            ? `\\[Page ${page + 1}/${Math.ceil(totalActivities / ITEMS_PER_PAGE)}\\]`
+            ? `\\[Sahifa ${page + 1}/${Math.ceil(totalActivities / ITEMS_PER_PAGE)}\\]`
             : '';
         const messageText = [
-            '*📋 Activity Log*',
-            `Total: ${totalActivities} activities ${pageInfo}`,
+            '*📋 Faoliyat Tarixi*',
+            `Jami: ${totalActivities} ta faoliyat ${pageInfo}`,
             '',
-            'Select an activity to view details:'
+            'Batafsil ko\'rish uchun faoliyatni tanlang:'
         ].join('\n');
         await ctx.reply(messageText, {
             parse_mode: 'MarkdownV2',
@@ -81,8 +81,11 @@ async function showActivityLog(ctx, page = 0) {
     }
     catch (error) {
         console.error('Error in showActivityLog:', error);
-        await ctx.reply('❌ Failed to load activity log\\. Please try again\\.');
+        await ctx.reply('❌ Faoliyat tarixini yuklashda xatolik yuz berdi\\. Iltimos\\, qayta urinib ko\'ring\\.');
     }
+}
+function escapeMarkdown(text) {
+    return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
 }
 async function handleActivitySelection(ctx) {
     try {
@@ -98,44 +101,42 @@ async function handleActivitySelection(ctx) {
             }
         });
         if (!activity) {
-            await ctx.answerCbQuery('Activity not found.');
+            await ctx.answerCbQuery('Faoliyat topilmadi.');
             return;
         }
         const content = JSON.parse(activity.originalContent);
-        const messageText = (content.text || content.caption || 'Media content')
-            .replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&'); // Escape Markdown characters
-        const channelList = activity.messages.map(msg => `• ${msg.channel.title.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&')}`).join('\n');
+        const messageText = escapeMarkdown(content.text || content.caption || 'Media kontent');
+        const channelList = activity.messages.map(msg => `• ${escapeMarkdown(msg.channel.title)}`).join('\n');
         const keyboard = [];
         const actionRow = [];
         // Delete button
-        actionRow.push(telegraf_1.Markup.button.callback('🗑 Delete', `delete:${activity.id}`));
+        actionRow.push(telegraf_1.Markup.button.callback('🗑 O\'chirish', `delete:${activity.id}`));
         // Edit button for text messages
         if (activity.type === 'direct' && 'text' in content) {
-            actionRow.push(telegraf_1.Markup.button.callback('✏️ Edit', `edit:${activity.id}`));
+            actionRow.push(telegraf_1.Markup.button.callback('✏️ Tahrirlash', `edit:${activity.id}`));
         }
         keyboard.push(actionRow);
         // Back button in a separate row
         keyboard.push([
-            telegraf_1.Markup.button.callback('« Back to Log', 'back_to_log')
+            telegraf_1.Markup.button.callback('« Orqaga', 'back_to_log')
         ]);
-        const messageDate = new Date(activity.createdAt).toLocaleString()
-            .replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
-        const messageType = activity.type === 'forward' ? 'Forwarded' : 'Direct';
-        const contentType = 'text' in content ? 'Text' :
-            'photo' in content ? 'Photo' :
+        const messageDate = escapeMarkdown(new Date(activity.createdAt).toLocaleString());
+        const messageType = activity.type === 'forward' ? 'Forward qilingan' : 'To\'g\'ridan\\-to\'g\'ri';
+        const contentType = 'text' in content ? 'Matn' :
+            'photo' in content ? 'Rasm' :
                 'video' in content ? 'Video' :
-                    'document' in content ? 'Document' : 'Other';
+                    'document' in content ? 'Fayl' : 'Boshqa';
         const messageContent = [
-            '*📋 Activity Details*',
+            '*📋 Faoliyat Tafsilotlari*',
             '',
-            `*📅 Date:* ${messageDate}`,
-            `*📝 Type:* ${messageType} message`,
-            `*📄 Content Type:* ${contentType}`,
+            `*📅 Sana:* ${messageDate}`,
+            `*📝 Turi:* ${messageType} xabar`,
+            `*📄 Kontent turi:* ${contentType}`,
             '',
-            '*Message Content:*',
+            '*Xabar mazmuni:*',
             messageText,
             '',
-            '*Shared with:*',
+            '*Yuborilgan kanallar:*',
             channelList
         ].join('\n');
         try {
@@ -156,16 +157,16 @@ async function handleActivitySelection(ctx) {
             console.error('Error sending formatted message:', error);
             // Fallback to plain text if Markdown fails
             const plainMessage = [
-                '📋 Activity Details',
+                '📋 Faoliyat Tafsilotlari',
                 '',
-                `📅 Date: ${new Date(activity.createdAt).toLocaleString()}`,
-                `📝 Type: ${messageType} message`,
-                `📄 Content Type: ${contentType}`,
+                `📅 Sana: ${new Date(activity.createdAt).toLocaleString()}`,
+                `📝 Turi: ${messageType} xabar`,
+                `📄 Kontent turi: ${contentType}`,
                 '',
-                'Message Content:',
-                content.text || content.caption || 'Media content',
+                'Xabar mazmuni:',
+                content.text || content.caption || 'Media kontent',
                 '',
-                'Shared with:',
+                'Yuborilgan kanallar:',
                 activity.messages.map(msg => `• ${msg.channel.title}`).join('\n')
             ].join('\n');
             if (ctx.callbackQuery.message) {
@@ -183,7 +184,7 @@ async function handleActivitySelection(ctx) {
     }
     catch (error) {
         console.error('Error in handleActivitySelection:', error);
-        await ctx.answerCbQuery('Failed to load activity details.');
+        await ctx.answerCbQuery('Faoliyat tafsilotlarini yuklashda xatolik yuz berdi.');
         await showActivityLog(ctx);
     }
 }
@@ -206,7 +207,7 @@ async function deleteActivity(ctx) {
             }
         });
         if (!activity) {
-            await ctx.answerCbQuery('Activity not found.');
+            await ctx.answerCbQuery('Faoliyat topilmadi.');
             return;
         }
         // Delete messages from all channels
@@ -223,12 +224,12 @@ async function deleteActivity(ctx) {
             where: { id: activityId },
             data: { isDeleted: true }
         });
-        await ctx.answerCbQuery('Activity deleted successfully!');
+        await ctx.answerCbQuery('Faoliyat muvaffaqiyatli o\'chirildi!');
         await showActivityLog(ctx); // Refresh the activity log
     }
     catch (error) {
         console.error('Error in deleteActivity:', error);
-        await ctx.answerCbQuery('Failed to delete activity.');
+        await ctx.answerCbQuery('Faoliyatni o\'chirishda xatolik yuz berdi.');
     }
 }
 async function startEdit(ctx) {
@@ -240,15 +241,15 @@ async function startEdit(ctx) {
             where: { id: activityId }
         });
         if (!activity || activity.type !== 'direct') {
-            await ctx.answerCbQuery('Cannot edit this activity.');
+            await ctx.answerCbQuery('Bu faoliyatni tahrirlash mumkin emas.');
             return;
         }
         ctx.session.editingActivity = activityId;
-        await ctx.reply('Please send the new version of your message.');
+        await ctx.reply('Iltimos, xabarning yangi versiyasini yuboring.');
     }
     catch (error) {
         console.error('Error in startEdit:', error);
-        await ctx.answerCbQuery('Failed to start editing.');
+        await ctx.answerCbQuery('Tahrirlashni boshlashda xatolik yuz berdi.');
     }
 }
 async function handleEdit(ctx) {
@@ -264,7 +265,7 @@ async function handleEdit(ctx) {
             }
         });
         if (!activity) {
-            await ctx.reply('Activity not found.');
+            await ctx.reply('Faoliyat topilmadi.');
             return;
         }
         // Check if the new message matches the type of the original message
@@ -272,7 +273,7 @@ async function handleEdit(ctx) {
         const isOriginalText = 'text' in originalContent;
         const isNewText = 'text' in ctx.message;
         if (isOriginalText !== isNewText) {
-            await ctx.reply('❌ New message type must match the original message type (text/media).');
+            await ctx.reply('❌ Yangi xabar turi avvalgisi bilan bir xil bo\'lishi kerak (matn/media).');
             return;
         }
         let updateSuccess = 0;
@@ -285,7 +286,7 @@ async function handleEdit(ctx) {
                     updateSuccess++;
                 }
                 else if ('photo' in ctx.message) {
-                    await ctx.reply('❌ Photo/media editing is not supported. Please use text messages only.');
+                    await ctx.reply('❌ Rasm/media tahrirlash qo\'llab-quvvatlanmaydi. Faqat matnli xabarlarni tahrirlash mumkin.');
                     return;
                 }
             }
@@ -301,13 +302,13 @@ async function handleEdit(ctx) {
         });
         delete ctx.session.editingActivity;
         const statusMessage = updateFailed > 0
-            ? `✅ Updated ${updateSuccess} messages, failed to update ${updateFailed} messages.`
-            : '✅ All messages updated successfully!';
+            ? `✅ ${updateSuccess} ta xabar yangilandi, ${updateFailed} ta xabarni yangilashda xatolik yuz berdi.`
+            : '✅ Barcha xabarlar muvaffaqiyatli yangilandi!';
         await ctx.reply(statusMessage);
         await showActivityLog(ctx); // Show the activity log after editing
     }
     catch (error) {
         console.error('Error in handleEdit:', error);
-        await ctx.reply('❌ Failed to edit messages. Please try again.');
+        await ctx.reply('❌ Xabarlarni tahrirlashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
     }
 }

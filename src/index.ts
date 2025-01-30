@@ -24,11 +24,11 @@ const prisma = new PrismaClient();
 
 // Set up bot commands
 const commands = [
-  { command: 'start', description: 'Start the bot and show main menu' },
-  { command: 'menu', description: 'Show main menu with all actions' },
-  { command: 'post', description: 'Create new post' },
-  { command: 'channels', description: 'List all managed channels' },
-  { command: 'activities', description: 'View activity log' },
+  { command: 'start', description: 'Botni ishga tushirish va asosiy menyuni ko\'rsatish' },
+  { command: 'menu', description: 'Asosiy menyuni ko\'rsatish' },
+  { command: 'post', description: 'Yangi post yaratish' },
+  { command: 'channels', description: 'Kanallar ro\'yxatini ko\'rsatish' },
+  { command: 'activities', description: 'Faoliyat tarixini ko\'rish' },
 ];
 
 // Set commands in Telegram
@@ -48,23 +48,23 @@ async function showMainMenu(ctx: BotContext) {
   if (ctx.chat?.type !== 'private') return;
 
   const keyboard = Markup.keyboard([
-    ['✏️ New Post'],
-    ['📢 Channels', '📋 Activities'],
-    ['ℹ️ Help']
+    ['✏️ Yangi Post'],
+    ['📢 Kanallar', '📋 Faoliyat'],
+    ['ℹ️ Yordam']
   ])
   .resize()
   .persistent();
 
   await ctx.reply(
-    '*Welcome to the Channel Manager Bot!*\n\n' +
-    'Use the keyboard below or these commands:\n' +
-    '✏️ /post - Create new post\n' +
-    '📢 /channels - List managed channels\n' +
-    '📋 /activities - View activity log\n\n' +
-    '*Quick Guide:*\n' +
-    '1. Press "✏️ New Post" or just send any message\n' +
-    '2. Select target channels\n' +
-    '3. Confirm posting',
+    '*Kanallar boshqaruv botiga xush kelibsiz!*\n\n' +
+    'Quyidagi tugmalardan yoki buyruqlardan foydalaning:\n' +
+    '✏️ /post - Yangi post yaratish\n' +
+    '📢 /channels - Kanallar ro\'yxati\n' +
+    '📋 /activities - Faoliyat tarixi\n\n' +
+    '*Qo\'llanma:*\n' +
+    '1. "✏️ Yangi Post" tugmasini bosing yoki xabar yuboring\n' +
+    '2. Kanallarni tanlang\n' +
+    '3. Yuborishni tasdiqlang',
     {
       parse_mode: 'Markdown',
       ...keyboard
@@ -87,17 +87,17 @@ bot.command('activities', async (ctx) => {
 });
 
 // Handle keyboard button presses
-bot.hears('📢 Channels', async (ctx) => {
+bot.hears('📢 Kanallar', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await channelManagement.listChannels(ctx);
 });
 
-bot.hears('📋 Activities', async (ctx) => {
+bot.hears('📋 Faoliyat', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await activityHandler.showActivityLog(ctx);
 });
 
-bot.hears('ℹ️ Help', showMainMenu);
+bot.hears('ℹ️ Yordam', showMainMenu);
 
 // Channel management events
 bot.on('my_chat_member', async (ctx) => {
@@ -135,7 +135,7 @@ bot.on('message', async (ctx, next) => {
 
   // Ignore keyboard button messages
   if (ctx.message && 'text' in ctx.message) {
-    const buttonTexts = ['✏️ New Post', '📢 Channels', '📋 Activities', 'ℹ️ Help'];
+    const buttonTexts = ['✏️ Yangi Post', '📢 Kanallar', '📋 Faoliyat', 'ℹ️ Yordam'];
     if (buttonTexts.includes(ctx.message.text)) {
       return next();
     }
@@ -159,23 +159,23 @@ bot.on('message', async (ctx, next) => {
 bot.command('post', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await ctx.reply(
-    '*Create New Post*\n\n' +
-    'Please send or forward the content you want to share:\n' +
-    '• Text message\n' +
-    '• Photo with caption\n' +
-    '• Forward from another channel',
+    '*Yangi Post Yaratish*\n\n' +
+    'Yubormoqchi bo\'lgan kontentni yuboring:\n' +
+    '• Matnli xabar\n' +
+    '• Rasm (izoh bilan)\n' +
+    '• Boshqa kanaldan forward qilingan post',
     { parse_mode: 'Markdown' }
   );
 });
 
-bot.hears('✏️ New Post', async (ctx) => {
+bot.hears('✏️ Yangi Post', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await ctx.reply(
-    '*Create New Post*\n\n' +
-    'Please send or forward the content you want to share:\n' +
-    '• Text message\n' +
-    '• Photo with caption\n' +
-    '• Forward from another channel',
+    '*Yangi Post Yaratish*\n\n' +
+    'Yubormoqchi bo\'lgan kontentni yuboring:\n' +
+    '• Matnli xabar\n' +
+    '• Rasm (izoh bilan)\n' +
+    '• Boshqa kanaldan forward qilingan post',
     { parse_mode: 'Markdown' }
   );
 });
@@ -184,7 +184,7 @@ bot.hears('✏️ New Post', async (ctx) => {
 bot.catch((err: any, ctx) => {
   console.error(`Error for ${ctx.updateType}:`, err);
   if (ctx.chat?.type === 'private') {
-    ctx.reply('An error occurred. Please try again later.');
+    ctx.reply('Xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko\'ring.');
   }
 });
 

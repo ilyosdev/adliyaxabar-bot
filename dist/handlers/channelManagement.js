@@ -32,7 +32,7 @@ async function handleNewAdmin(ctx) {
         if (member.new_chat_member.status !== 'administrator') {
             console.log('Bot is not an administrator');
             if (member.new_chat_member.status === 'member') {
-                await ctx.reply('Please make me an administrator to manage content in this chat.');
+                await ctx.reply('Iltimos, botni kanalda/guruhda administrator qiling.');
             }
             return;
         }
@@ -51,7 +51,7 @@ async function handleNewAdmin(ctx) {
                         title: chatTitle // Update title in case it changed
                     }
                 });
-                await ctx.reply(`Reactivated management for ${chatTitle}! 🔄`);
+                await ctx.reply(`${chatTitle} uchun boshqaruv qayta faollashtirildi! 🔄`);
             }
         }
         else {
@@ -64,14 +64,14 @@ async function handleNewAdmin(ctx) {
                 }
             });
             const message = chat.type === 'channel'
-                ? `Successfully connected to channel "${chatTitle}"! 📢\nI will now manage content here.`
-                : `Successfully connected to group "${chatTitle}"! 👥\nI will now manage content here.`;
+                ? `"${chatTitle}" kanali muvaffaqiyatli ulandi! 📢\nEndi men bu yerda kontent boshqaruvini amalga oshiraman.`
+                : `"${chatTitle}" guruhiga muvaffaqiyatli ulandi! 👥\nEndi men bu yerda kontent boshqaruvini amalga oshiraman.`;
             await ctx.reply(message);
         }
     }
     catch (error) {
         console.error('Error in handleNewAdmin:', error);
-        await ctx.reply('❌ Failed to setup admin connection. Please try again or contact support.');
+        await ctx.reply('❌ Administrator ulanishini o\'rnatishda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring yoki yordam uchun murojaat qiling.');
     }
 }
 async function handleLeftChat(ctx) {
@@ -101,11 +101,11 @@ async function listChannels(ctx, page = 0) {
             where: { isActive: true }
         });
         if (totalChannels === 0) {
-            await ctx.reply('📢 *No channels connected*\n\n' +
-                'To add channels:\n' +
-                '1. Add me to a channel/group\n' +
-                '2. Make me an administrator\n' +
-                '3. I will start managing content automatically', { parse_mode: 'Markdown' });
+            await ctx.reply('📢 *Hech qanday kanal ulanmagan*\n\n' +
+                'Kanal qo\'shish uchun:\n' +
+                '1. Meni kanal/guruhga qo\'shing\n' +
+                '2. Administrator qiling\n' +
+                '3. Men avtomatik ravishda kontentni boshqarishni boshlayman', { parse_mode: 'Markdown' });
             return;
         }
         // Get paginated channels
@@ -118,31 +118,31 @@ async function listChannels(ctx, page = 0) {
             skip: page * CHANNELS_PER_PAGE,
             take: CHANNELS_PER_PAGE
         });
-        let message = '📢 *Managed Channels*\n\n';
+        let message = '📢 *Boshqarilayotgan kanallar*\n\n';
         const keyboard = [];
         let currentType = '';
         // Group channels by type
         for (const channel of channels) {
             if (currentType !== channel.type) {
-                message += `\n${channel.type === 'channel' ? '📢 Channels:' : '👥 Groups:'}\n`;
+                message += `\n${channel.type === 'channel' ? '📢 Kanallar:' : '👥 Guruhlar:'}\n`;
                 currentType = channel.type;
             }
             message += `• ${channel.title}\n`;
             keyboard.push([
-                telegraf_1.Markup.button.callback(`❌ Remove ${channel.title}`, `remove_channel:${channel.chatId}`)
+                telegraf_1.Markup.button.callback(`❌ ${channel.title}ni o'chirish`, `remove_channel:${channel.chatId}`)
             ]);
         }
         // Add pagination info
         const totalPages = Math.ceil(totalChannels / CHANNELS_PER_PAGE);
-        message += `\n📄 Page ${page + 1}/${totalPages} (Total: ${totalChannels})\n`;
-        message += '\nClick the button below a channel to remove it.';
+        message += `\n📄 Sahifa ${page + 1}/${totalPages} (Jami: ${totalChannels})\n`;
+        message += '\nKanalni o\'chirish uchun tugmani bosing.';
         // Add pagination controls
         const paginationRow = [];
         if (page > 0) {
-            paginationRow.push(telegraf_1.Markup.button.callback('« First', 'channels:0'), telegraf_1.Markup.button.callback('‹ Prev', `channels:${page - 1}`));
+            paginationRow.push(telegraf_1.Markup.button.callback('« Boshi', 'channels:0'), telegraf_1.Markup.button.callback('‹ Oldingi', `channels:${page - 1}`));
         }
         if (page < totalPages - 1) {
-            paginationRow.push(telegraf_1.Markup.button.callback('Next ›', `channels:${page + 1}`), telegraf_1.Markup.button.callback('Last »', `channels:${totalPages - 1}`));
+            paginationRow.push(telegraf_1.Markup.button.callback('Keyingi ›', `channels:${page + 1}`), telegraf_1.Markup.button.callback('Oxiri »', `channels:${totalPages - 1}`));
         }
         if (paginationRow.length > 0) {
             keyboard.push(paginationRow);
@@ -154,7 +154,7 @@ async function listChannels(ctx, page = 0) {
     }
     catch (error) {
         console.error('Error in listChannels:', error);
-        await ctx.reply('❌ Failed to load channel list. Please try again.');
+        await ctx.reply('❌ Kanallar ro\'yxatini yuklashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
     }
 }
 async function handleChannelPagination(ctx) {
@@ -182,7 +182,7 @@ async function removeChannel(ctx) {
             }
         });
         if (!channel) {
-            await ctx.answerCbQuery('Channel not found.');
+            await ctx.answerCbQuery('Kanal topilmadi.');
             return;
         }
         // Try to leave the channel/group
@@ -198,12 +198,12 @@ async function removeChannel(ctx) {
             where: { id: channel.id },
             data: { isActive: false }
         });
-        await ctx.answerCbQuery(`Successfully removed ${channel.title}!`);
+        await ctx.answerCbQuery(`${channel.title} muvaffaqiyatli o'chirildi!`);
         // Refresh the channel list
         await listChannels(ctx);
     }
     catch (error) {
         console.error('Error in removeChannel:', error);
-        await ctx.answerCbQuery('Failed to remove channel. Please try again.');
+        await ctx.answerCbQuery('Kanalni o\'chirishda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
     }
 }

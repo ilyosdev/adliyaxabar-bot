@@ -9,7 +9,7 @@ const BATCH_SIZE = 30; // Process channels in batches
 export async function handleForward(ctx: BotContext) {
   try {
     if (!ctx.message || !('forward_from_chat' in ctx.message)) {
-      await ctx.reply('Please forward a message to proceed.');
+      await ctx.reply('Davom etish uchun xabarni forward qiling.');
       return;
     }
 
@@ -18,7 +18,7 @@ export async function handleForward(ctx: BotContext) {
     });
 
     if (channels.length === 0) {
-      await ctx.reply('No channels available. Please add me as admin to some channels first.');
+      await ctx.reply('Kanallar mavjud emas. Iltimos, avval meni kanallarga administrator sifatida qo\'shing.');
       return;
     }
 
@@ -31,14 +31,14 @@ export async function handleForward(ctx: BotContext) {
     await showChannelSelector(ctx);
   } catch (error) {
     console.error('Error in handleForward:', error);
-    await ctx.reply('❌ Failed to process forward. Please try again.');
+    await ctx.reply('❌ Forward qilishda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
   }
 }
 
 export async function handleDirectPost(ctx: BotContext) {
   try {
     if (!ctx.message || !('text' in ctx.message || 'photo' in ctx.message)) {
-      await ctx.reply('Please send a text message or photo to proceed.');
+      await ctx.reply('Iltimos, matnli xabar yoki rasm yuboring.');
       return;
     }
 
@@ -47,7 +47,7 @@ export async function handleDirectPost(ctx: BotContext) {
     });
 
     if (channels.length === 0) {
-      await ctx.reply('No channels available. Please add me as admin to some channels first.');
+      await ctx.reply('Kanallar mavjud emas. Iltimos, avval meni kanallarga administrator sifatida qo\'shing.');
       return;
     }
 
@@ -60,7 +60,7 @@ export async function handleDirectPost(ctx: BotContext) {
     await showChannelSelector(ctx);
   } catch (error) {
     console.error('Error in handleDirectPost:', error);
-    await ctx.reply('❌ Failed to process post. Please try again.');
+    await ctx.reply('❌ Xabarni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
   }
 }
 
@@ -84,7 +84,7 @@ async function showChannelSelector(ctx: BotContext) {
         currentRow = [];
       }
       keyboard.push([Markup.button.callback(
-        `${channel.type === 'channel' ? '📢 Channels' : '👥 Groups'}`,
+        `${channel.type === 'channel' ? '📢 Kanallar' : '👥 Guruhlar'}`,
         'header_dummy',
         true
       )]);
@@ -109,18 +109,18 @@ async function showChannelSelector(ctx: BotContext) {
 
   // Add control buttons
   keyboard.push([
-    Markup.button.callback('✅ Send to Selected', 'confirm_posting'),
-    Markup.button.callback('❌ Cancel', 'cancel_posting')
+    Markup.button.callback('✅ Tanlanganlarga yuborish', 'confirm_posting'),
+    Markup.button.callback('❌ Bekor qilish', 'cancel_posting')
   ]);
 
   const selectedCount = ctx.session.pendingPost.targetChannels.length;
   const totalCount = channels.length;
 
   await ctx.reply(
-    `Select channels to *exclude* from sharing:\n` +
-    `Currently will be sent to: ${selectedCount}/${totalCount} channels/groups\n\n` +
-    `✅ - Will be shared\n` +
-    `❌ - Will be skipped`,
+    `Yubormaslik uchun kanallarni tanlang:\n` +
+    `Hozirda yuboriladi: ${selectedCount}/${totalCount} kanal/guruh\n\n` +
+    `✅ - Yuboriladi\n` +
+    `❌ - O'tkazib yuboriladi`,
     {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(keyboard)
@@ -138,7 +138,7 @@ export async function handleChannelSelection(ctx: BotContext) {
 
     const chatId = ctx.callbackQuery.data.split(':')[1];
     if (!ctx.session.pendingPost) {
-      await ctx.answerCbQuery('No pending post found. Please start over.');
+      await ctx.answerCbQuery('Post topilmadi. Iltimos, qaytadan boshlang.');
       return;
     }
 
@@ -146,43 +146,43 @@ export async function handleChannelSelection(ctx: BotContext) {
     if (channelIndex === -1) {
       // Channel was excluded, now include it
       ctx.session.pendingPost.targetChannels.push(Number(chatId));
-      await ctx.answerCbQuery('Channel added back to sharing list ✅');
+      await ctx.answerCbQuery('Kanal yuborish ro\'yxatiga qo\'shildi ✅');
     } else {
       // Channel was included, now exclude it
       ctx.session.pendingPost.targetChannels.splice(channelIndex, 1);
-      await ctx.answerCbQuery('Channel will be skipped ❌');
+      await ctx.answerCbQuery('Kanal o\'tkazib yuboriladi ❌');
     }
 
     // Update the message with new keyboard
     await showChannelSelector(ctx);
   } catch (error) {
     console.error('Error in handleChannelSelection:', error);
-    await ctx.answerCbQuery('Failed to process selection. Please try again.');
+    await ctx.answerCbQuery('Tanlashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
   }
 }
 
 export async function confirmPosting(ctx: BotContext) {
   try {
     if (!ctx.session.pendingPost) {
-      await ctx.reply('No pending post found. Please start over.');
+      await ctx.reply('Post topilmadi. Iltimos, qaytadan boshlang.');
       return;
     }
 
     const { pendingPost } = ctx.session;
     
     if (pendingPost.targetChannels.length === 0) {
-      await ctx.reply('❌ Please select at least one channel to share to.');
+      await ctx.reply('❌ Iltimos, kamida bitta kanal tanlang.');
       return;
     }
 
     // Send initial status message
     const statusMessage = await ctx.reply(
-      `📤 Preparing to share with ${pendingPost.targetChannels.length} channels/groups...\n\n` +
-      `⚠️ For large broadcasts (${pendingPost.targetChannels.length} channels):\n` +
-      `• Messages will be sent at a rate of ~30 per second\n` +
-      `• Estimated time: ${Math.ceil(pendingPost.targetChannels.length / 30)} seconds\n` +
-      `• Progress will be updated every 5 seconds\n\n` +
-      `0% complete`
+      `📤 ${pendingPost.targetChannels.length} ta kanal/guruhga yuborish tayyorlanmoqda...\n\n` +
+      `⚠️ Katta hajmli yuborish (${pendingPost.targetChannels.length} ta kanal):\n` +
+      `• Xabarlar sekundiga ~30 ta tezlikda yuboriladi\n` +
+      `• Taxminiy vaqt: ${Math.ceil(pendingPost.targetChannels.length / 30)} sekund\n` +
+      `• Jarayon har 5 sekundda yangilanadi\n\n` +
+      `0% bajarildi`
     );
 
     const results = {
@@ -238,11 +238,11 @@ export async function confirmPosting(ctx: BotContext) {
               statusMessage.chat.id,
               statusMessage.message_id,
               undefined,
-              `📤 Sharing progress: ${progress}%\n` +
-              `✅ Successful: ${results.success}\n` +
-              `❌ Failed: ${results.failed}\n` +
-              `📊 Total: ${results.total}\n\n` +
-              `⏱ Estimated time remaining: ${Math.ceil((results.total - (results.success + results.failed)) / 30)} seconds`
+              `📤 Yuborish jarayoni: ${progress}%\n` +
+              `✅ Muvaffaqiyatli: ${results.success}\n` +
+              `❌ Xatolik: ${results.failed}\n` +
+              `📊 Jami: ${results.total}\n\n` +
+              `⏱ Taxminiy qolgan vaqt: ${Math.ceil((results.total - (results.success + results.failed)) / 30)} sekund`
             );
             results.lastUpdate = Date.now();
           } catch (error) {
@@ -283,22 +283,22 @@ export async function confirmPosting(ctx: BotContext) {
 
     // Send final status
     await ctx.reply(
-      `✅ Broadcast completed!\n\n` +
-      `Successfully shared with: ${results.success} channels\n` +
-      `Failed to share with: ${results.failed} channels\n` +
-      `Total channels: ${results.total}\n\n` +
-      (results.failed > 0 ? '⚠️ Some messages failed due to rate limits or channel restrictions.' : '🎉 All messages sent successfully!')
+      `✅ Yuborish yakunlandi!\n\n` +
+      `Muvaffaqiyatli yuborildi: ${results.success} ta kanal\n` +
+      `Yuborilmadi: ${results.failed} ta kanal\n` +
+      `Jami kanallar: ${results.total}\n\n` +
+      (results.failed > 0 ? '⚠️ Ba\'zi xabarlar limit yoki kanal cheklovlari tufayli yuborilmadi.' : '🎉 Barcha xabarlar muvaffaqiyatli yuborildi!')
     );
 
     delete ctx.session.pendingPost;
   } catch (error) {
     console.error('Error in confirmPosting:', error);
-    await ctx.reply('❌ An error occurred while sharing content. Some messages might not have been sent.');
+    await ctx.reply('❌ Xabarlarni yuborishda xatolik yuz berdi. Ba\'zi xabarlar yuborilmagan bo\'lishi mumkin.');
   }
 }
 
 export async function cancelPosting(ctx: BotContext) {
   delete ctx.session.pendingPost;
-  await ctx.reply('Posting cancelled.');
+  await ctx.reply('Yuborish bekor qilindi.');
   await ctx.answerCbQuery();
 } 
