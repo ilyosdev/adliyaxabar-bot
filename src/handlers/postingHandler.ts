@@ -5,6 +5,22 @@ import { copySafeMessage } from '../utils/rateLimiter';
 
 const prisma = new PrismaClient();
 const BATCH_SIZE = 30; // Process channels in batches
+const CHANNELS_PER_PAGE = 8; // Maximum channels per page
+
+interface PendingPost {
+  type: 'forward' | 'direct';
+  content: any;
+  targetChannels: number[];
+  page?: number; // Add page to track pagination
+}
+
+declare module 'telegraf/typings/context' {
+  interface Context {
+    session: {
+      pendingPost?: PendingPost;
+    }
+  }
+}
 
 export async function handleForward(ctx: BotContext) {
   try {
@@ -64,12 +80,21 @@ export async function handleDirectPost(ctx: BotContext) {
   }
 }
 
-async function showChannelSelector(ctx: BotContext) {
+async function showChannelSelector(ctx: BotContext, page = 0) {
   if (!ctx.session.pendingPost) return;
+
+  const totalChannels = await prisma.channel.count({
+    where: { isActive: true }
+  });
 
   const channels = await prisma.channel.findMany({
     where: { isActive: true },
-    orderBy: { type: 'asc' } // Group channels and groups together
+    orderBy: [
+      { type: 'asc' },
+      { title: 'asc' }
+    ],
+    skip: page * CHANNELS_PER_PAGE,
+    take: CHANNELS_PER_PAGE
   });
 
   const keyboard = [];
@@ -107,6 +132,18 @@ async function showChannelSelector(ctx: BotContext) {
     keyboard.push(currentRow);
   }
 
+  // Add pagination controls
+  const paginationRow = [];
+  if (page > 0) {
+    paginationRow.push(Markup.button.callback('⬅️ Oldingi', `channel_page:${page - 1}`));
+  }
+  if ((page + 1) * CHANNELS_PER_PAGE < totalChannels) {
+    paginationRow.push(Markup.button.callback('➡️ Keyingi', `channel_page:${page + 1}`));
+  }
+  if (paginationRow.length > 0) {
+    keyboard.push(paginationRow);
+  }
+
   // Add control buttons
   keyboard.push([
     Markup.button.callback('✅ Tanlanganlarga yuborish', 'confirm_posting'),
@@ -114,29 +151,61 @@ async function showChannelSelector(ctx: BotContext) {
   ]);
 
   const selectedCount = ctx.session.pendingPost.targetChannels.length;
-  const totalCount = channels.length;
 
-  await ctx.reply(
-    `Yubormaslik uchun kanallarni tanlang:\n` +
-    `Hozirda yuboriladi: ${selectedCount}/${totalCount} kanal/guruh\n\n` +
-    `✅ - Yuboriladi\n` +
-    `❌ - O'tkazib yuboriladi`,
-    {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(keyboard)
+  // Store current page in session
+  ctx.session.pendingPost.page = page;
+
+  const messageText = [
+    `Yubormaslik uchun kanallarni tanlang:`,
+    `Hozirda yuboriladi: ${selectedCount}/${totalChannels} kanal/guruh`,
+    `[Sahifa ${page + 1}/${Math.ceil(totalChannels / CHANNELS_PER_PAGE)}]`,
+    '',
+    `✅ - Yuboriladi`,
+    `❌ - O'tkazib yuboriladi`
+  ].join('\n');
+
+  const markup = Markup.inlineKeyboard(keyboard);
+
+  try {
+    if (ctx.callbackQuery?.message) {
+      await ctx.editMessageText(messageText, {
+        parse_mode: 'Markdown',
+        ...markup
+      });
+    } else {
+      await ctx.reply(messageText, {
+        parse_mode: 'Markdown',
+        ...markup
+      });
     }
-  );
+  } catch (error) {
+    console.error('Error showing channel selector:', error);
+    await ctx.reply('Kanallar ro\'yxatini ko\'rsatishda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
+  }
 }
 
 export async function handleChannelSelection(ctx: BotContext) {
   try {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
-    if (ctx.callbackQuery.data === 'header_dummy') {
+    
+    const [action, value] = ctx.callbackQuery.data.split(':');
+
+    // Handle pagination
+    if (action === 'channel_page') {
+      const page = parseInt(value);
+      await showChannelSelector(ctx, page);
       await ctx.answerCbQuery();
       return;
     }
 
-    const chatId = ctx.callbackQuery.data.split(':')[1];
+    if (action === 'header_dummy') {
+      await ctx.answerCbQuery();
+      return;
+    }
+
+    if (action !== 'select_channel') return;
+
+    const chatId = value;
     if (!ctx.session.pendingPost) {
       await ctx.answerCbQuery('Post topilmadi. Iltimos, qaytadan boshlang.');
       return;
@@ -153,8 +222,8 @@ export async function handleChannelSelection(ctx: BotContext) {
       await ctx.answerCbQuery('Kanal o\'tkazib yuboriladi ❌');
     }
 
-    // Update the message with new keyboard
-    await showChannelSelector(ctx);
+    // Update the message with new keyboard, maintaining the current page
+    await showChannelSelector(ctx, ctx.session.pendingPost.page || 0);
   } catch (error) {
     console.error('Error in handleChannelSelection:', error);
     await ctx.answerCbQuery('Tanlashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');

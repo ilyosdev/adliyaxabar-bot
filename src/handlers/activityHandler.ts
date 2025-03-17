@@ -40,7 +40,7 @@ export async function showActivityLog(ctx: BotContext, page = 0) {
       
       keyboard.push([
         Markup.button.callback(
-          `${activity.type === 'forward' ? '↪️' : '📝'} ${date} • ${escapeMarkdown(previewText)} (${channelCount} ${channelCount === 1 ? 'kanal' : 'kanal'})`,
+          `${activity.type === 'forward' ? '↪️' : '📝'} ${date} • ${previewText} (${channelCount} ${channelCount === 1 ? 'kanal' : 'kanal'})`,
           `activity:${activity.id}`
         )
       ]);
@@ -53,19 +53,19 @@ export async function showActivityLog(ctx: BotContext, page = 0) {
       // First page button
       if (page > 0) {
         paginationButtons.push(
-          Markup.button.callback('« Boshi', `page:0`)
+          Markup.button.callback('« Boshi', `activity_page:0`)
         );
       }
       
       // Previous/Next buttons
       if (page > 0) {
         paginationButtons.push(
-          Markup.button.callback('‹ Oldingi', `page:${page - 1}`)
+          Markup.button.callback('‹ Oldingi', `activity_page:${page - 1}`)
         );
       }
       if ((page + 1) * ITEMS_PER_PAGE < totalActivities) {
         paginationButtons.push(
-          Markup.button.callback('Keyingi ›', `page:${page + 1}`)
+          Markup.button.callback('Keyingi ›', `activity_page:${page + 1}`)
         );
       }
       
@@ -73,7 +73,7 @@ export async function showActivityLog(ctx: BotContext, page = 0) {
       const lastPage = Math.ceil(totalActivities / ITEMS_PER_PAGE) - 1;
       if (page < lastPage) {
         paginationButtons.push(
-          Markup.button.callback('Oxiri »', `page:${lastPage}`)
+          Markup.button.callback('Oxiri »', `activity_page:${lastPage}`)
         );
       }
       

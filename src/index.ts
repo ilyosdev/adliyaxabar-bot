@@ -118,9 +118,13 @@ bot.action(/^delete:/, activityHandler.deleteActivity);
 bot.action(/^edit:/, activityHandler.startEdit);
 bot.action(/^remove_channel:/, channelManagement.removeChannel);
 bot.action(/^channels:(\d+)$/, channelManagement.handleChannelPagination);
-bot.action(/^page:(\d+)$/, (ctx) => {
+bot.action(/^activity_page:(\d+)$/, (ctx) => {
   const page = parseInt(ctx.match[1]);
   return activityHandler.showActivityLog(ctx, page);
+});
+bot.action(/^channel_page:(\d+)$/, (ctx) => {
+  const page = parseInt(ctx.match[1]);
+  return postingHandler.handleChannelSelection(ctx);
 });
 
 // Message handlers - handle these last
@@ -128,7 +132,7 @@ bot.on('message', async (ctx, next) => {
   if (ctx.chat.type !== 'private') return next();
 
   // Handle editing activity first
-  if (ctx.session.editingActivity) {
+  if ('editingActivity' in ctx.session && ctx.session.editingActivity) {
     await activityHandler.handleEdit(ctx);
     return;
   }

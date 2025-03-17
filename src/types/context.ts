@@ -1,11 +1,14 @@
 import { Context } from 'telegraf';
 
+interface PendingPost {
+  type: 'forward' | 'direct';
+  content: any;
+  targetChannels: number[];
+  page?: number;
+}
+
 interface SessionData {
-  pendingPost?: {
-    type: 'forward' | 'direct';
-    content: any; // Message content
-    targetChannels: number[];
-  };
+  pendingPost?: PendingPost;
   editingActivity?: string;
 }
 
