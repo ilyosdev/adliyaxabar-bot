@@ -258,7 +258,7 @@ export async function confirmPosting(ctx: BotContext) {
     const channels = await prisma.channel.findMany({
       where: {
         chatId: {
-          in: pendingPost.targetChannels.map(id => id.toString())
+          in: pendingPost.targetChannels.map(id => BigInt(id))
         },
         isActive: true
       }
@@ -319,7 +319,7 @@ export async function confirmPosting(ctx: BotContext) {
           // Copy the message based on type
           if (pendingPost.type === 'forward') {
             // Forward the message
-            const result = await limiter.enqueue(() => {
+            const result = await limiter.enqueue<{ message_id: number }>(() => {
               return copySafeMessage(
                 ctx.telegram,
                 Number(channel.chatId),
@@ -331,7 +331,7 @@ export async function confirmPosting(ctx: BotContext) {
           } else {
             // Direct post (text, photo, etc.)
             if ('text' in pendingPost.content) {
-              const result = await limiter.enqueue(() => {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
                 return ctx.telegram.sendMessage(Number(channel.chatId), pendingPost.content.text);
               });
               messageId = result.message_id;
@@ -340,7 +340,7 @@ export async function confirmPosting(ctx: BotContext) {
               const photo = pendingPost.content.photo[pendingPost.content.photo.length - 1];
               const caption = pendingPost.content.caption || '';
               
-              const result = await limiter.enqueue(() => {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
                 return ctx.telegram.sendPhoto(Number(channel.chatId), photo.file_id, {
                   caption
                 });
