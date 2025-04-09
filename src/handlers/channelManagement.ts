@@ -238,4 +238,98 @@ export async function removeChannel(ctx: BotContext) {
     console.error('Error in removeChannel:', error);
     await ctx.answerCbQuery('Kanalni o\'chirishda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
   }
+}
+
+/**
+ * Cleans up the channel list by checking status and updating migrated channels
+ */
+export async function cleanupChannels(ctx: BotContext) {
+  try {
+    const channels = await prisma.channel.findMany({
+      where: { isActive: true }
+    });
+    
+    let updatedCount = 0;
+    let deactivatedCount = 0;
+    let errorCount = 0;
+    
+    for (const channel of channels) {
+      try {
+        // Try to get chat information
+        const chat = await ctx.telegram.getChat(Number(channel.chatId));
+        
+        // Check if the chat type has changed
+        if (chat.type !== channel.type) {
+          await prisma.channel.update({
+            where: { id: channel.id },
+            data: { type: chat.type }
+          });
+          updatedCount++;
+        }
+      } catch (error: any) {
+        // Handle specific error cases
+        if (error.response) {
+          if (error.response.error_code === 400 && 
+              error.response.description === 'Bad Request: group chat was upgraded to a supergroup chat' &&
+              error.response.parameters?.migrate_to_chat_id) {
+            
+            // Update to the new chat ID
+            await prisma.channel.update({
+              where: { id: channel.id },
+              data: { 
+                chatId: error.response.parameters.migrate_to_chat_id.toString(),
+                type: 'supergroup'
+              }
+            });
+            updatedCount++;
+          }
+          else if (
+            (error.response.error_code === 403 && error.response.description.includes('bot was kicked')) ||
+            (error.response.error_code === 400 && error.response.description.includes('chat not found'))
+          ) {
+            // Deactivate the channel
+            await prisma.channel.update({
+              where: { id: channel.id },
+              data: { isActive: false }
+            });
+            deactivatedCount++;
+          }
+          else {
+            errorCount++;
+            console.error(`Error checking channel ${channel.chatId}:`, error);
+          }
+        }
+      }
+    }
+    
+    return { updatedCount, deactivatedCount, errorCount };
+  } catch (error) {
+    console.error('Error in cleanupChannels:', error);
+    throw error;
+  }
+}
+
+// Add a command to trigger channel cleanup
+export async function handleCleanupCommand(ctx: BotContext) {
+  if (ctx.chat?.type !== 'private') return;
+  
+  const statusMessage = await ctx.reply('🔄 Kanallar ro\'yxati tekshirilmoqda...');
+  
+  try {
+    const result = await cleanupChannels(ctx);
+    
+    await ctx.telegram.editMessageText(
+      ctx.chat.id,
+      statusMessage.message_id,
+      undefined,
+      `✅ Kanallar ro'yxati yangilandi!\n\n` +
+      `• Yangilangan kanallar: ${result.updatedCount}\n` +
+      `• Deaktivlashtirilgan kanallar: ${result.deactivatedCount}\n` +
+      `• Xatoliklar: ${result.errorCount}\n\n` +
+      `Kanallar ro'yxatini ko'rish uchun /channels buyrug'ini yuboring.`
+    );
+  } catch (error) {
+    console.error('Channel cleanup failed:', error);
+    await ctx.reply('❌ Kanallar ro\'yxatini yangilashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
+  }
 } 

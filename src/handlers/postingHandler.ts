@@ -2,6 +2,7 @@ import { Markup } from 'telegraf';
 import { BotContext } from '../types/context';
 import { PrismaClient } from '@prisma/client';
 import { copySafeMessage } from '../utils/rateLimiter';
+import { RateLimiter } from '../utils/rateLimiter';
 
 const prisma = new PrismaClient();
 const BATCH_SIZE = 30; // Process channels in batches
@@ -247,122 +248,211 @@ export async function confirmPosting(ctx: BotContext) {
     // Send initial status message
     const statusMessage = await ctx.reply(
       `📤 ${pendingPost.targetChannels.length} ta kanal/guruhga yuborish tayyorlanmoqda...\n\n` +
-      `⚠️ Katta hajmli yuborish (${pendingPost.targetChannels.length} ta kanal):\n` +
-      `• Xabarlar sekundiga ~30 ta tezlikda yuboriladi\n` +
-      `• Taxminiy vaqt: ${Math.ceil(pendingPost.targetChannels.length / 30)} sekund\n` +
-      `• Jarayon har 5 sekundda yangilanadi\n\n` +
-      `0% bajarildi`
+      `⚠️ Katta hajmli yuborish (${pendingPost.targetChannels.length} ta kanal):\n` + 
+      `• Telegram cheklovlariga rioya qilish uchun xabarlar navbat bilan yuboriladi\n` +
+      `• Iltimos jarayon yakunlanishini kuting\n\n` +
+      `⏳ Boshlash...`
     );
 
-    const results = {
-      success: 0,
-      failed: 0,
-      total: pendingPost.targetChannels.length,
-      lastUpdate: Date.now()
-    };
-
-    // Get channel types for proper rate limiting
-    const channelTypes = await prisma.channel.findMany({
+    // Get the actual channels from DB
+    const channels = await prisma.channel.findMany({
       where: {
         chatId: {
-          in: pendingPost.targetChannels.map(id => BigInt(id))
-        }
-      },
-      select: {
-        chatId: true,
-        type: true
+          in: pendingPost.targetChannels.map(id => id.toString())
+        },
+        isActive: true
       }
     });
 
-    const channelTypeMap = new Map(
-      channelTypes.map(ch => [Number(ch.chatId), ch.type as 'channel' | 'group' | 'supergroup'])
-    );
+    const activity = await prisma.activity.create({
+      data: {
+        type: pendingPost.type,
+        originalContent: JSON.stringify(pendingPost.content),
+        isDeleted: false
+      }
+    });
 
-    // Process all channels in parallel with rate limiting
-    const sendPromises = pendingPost.targetChannels.map(async (chatId) => {
+    // Start sending messages
+    let successCount = 0;
+    let errorCount = 0;
+    let needCleanup = false;
+    const outdatedChannels = []; // To track channels that need migration or removal
+    
+    // Create a rate limiter instance for this broadcast
+    const limiter = new RateLimiter();
+    const startTime = Date.now();
+
+    // Group messages by batches to prevent hitting rate limits
+    for (let i = 0; i < channels.length; i += BATCH_SIZE) {
+      const batch = channels.slice(i, i + BATCH_SIZE);
+      const batchProgress = Math.min(i + BATCH_SIZE, channels.length);
+      const progressPercent = Math.round((batchProgress / channels.length) * 100);
+      
+      const elapsedTime = (Date.now() - startTime) / 1000;
+      const timePerChannelSec = elapsedTime / Math.max(1, i);
+      const estimatedTotalTimeSec = timePerChannelSec * channels.length;
+      const remainingTimeSec = Math.max(0, estimatedTotalTimeSec - elapsedTime);
+      
+      const minutes = Math.floor(remainingTimeSec / 60);
+      const seconds = Math.floor(remainingTimeSec % 60);
+      
       try {
-        const sent = await copySafeMessage(
-          ctx,
-          chatId,
-          pendingPost.content.chat.id,
-          pendingPost.content.message_id,
-          channelTypeMap.get(chatId) || 'channel'
+        // Update progress
+        await ctx.telegram.editMessageText(
+          ctx.chat!.id,
+          statusMessage.message_id,
+          undefined,
+          `📤 Yuborish davom etmoqda...\n\n` +
+          `📊 Progress: ${batchProgress}/${channels.length} (${progressPercent}%)\n` +
+          `⏱ Taxminiy qolgan vaqt: ${minutes}m ${seconds}s\n\n` +
+          `✅ Yuborildi: ${successCount}\n` +
+          `❌ Xatoliklar: ${errorCount}`
         );
+      } catch (error) {
+        console.error('Failed to update status message:', error);
+      }
 
-        const channel = await prisma.channel.findUnique({
-          where: { chatId: BigInt(chatId) }
-        });
-
-        if (!channel) {
-          throw new Error(`Channel not found: ${chatId}`);
-        }
-
-        results.success++;
-
-        // Update status message every 5 seconds
-        if (Date.now() - results.lastUpdate >= 5000) {
-          const progress = Math.round((results.success + results.failed) / results.total * 100);
-          try {
-            await ctx.telegram.editMessageText(
-              statusMessage.chat.id,
-              statusMessage.message_id,
-              undefined,
-              `📤 Yuborish jarayoni: ${progress}%\n` +
-              `✅ Muvaffaqiyatli: ${results.success}\n` +
-              `❌ Xatolik: ${results.failed}\n` +
-              `📊 Jami: ${results.total}\n\n` +
-              `⏱ Taxminiy qolgan vaqt: ${Math.ceil((results.total - (results.success + results.failed)) / 30)} sekund`
-            );
-            results.lastUpdate = Date.now();
-          } catch (error) {
-            console.error('Failed to update status message:', error);
-          }
-        }
-
-        return {
-          messageId: sent.message_id,
-          channel: {
-            connect: {
-              id: channel.id
+      for (const channel of batch) {
+        try {
+          let messageId: number | undefined;
+          
+          // Copy the message based on type
+          if (pendingPost.type === 'forward') {
+            // Forward the message
+            const result = await limiter.enqueue(() => {
+              return copySafeMessage(
+                ctx.telegram,
+                Number(channel.chatId),
+                pendingPost.content.forward_from_chat.id,
+                pendingPost.content.message_id
+              );
+            });
+            messageId = result.message_id;
+          } else {
+            // Direct post (text, photo, etc.)
+            if ('text' in pendingPost.content) {
+              const result = await limiter.enqueue(() => {
+                return ctx.telegram.sendMessage(Number(channel.chatId), pendingPost.content.text);
+              });
+              messageId = result.message_id;
+            } else if ('photo' in pendingPost.content) {
+              // Get the largest photo (last in the array)
+              const photo = pendingPost.content.photo[pendingPost.content.photo.length - 1];
+              const caption = pendingPost.content.caption || '';
+              
+              const result = await limiter.enqueue(() => {
+                return ctx.telegram.sendPhoto(Number(channel.chatId), photo.file_id, {
+                  caption
+                });
+              });
+              messageId = result.message_id;
             }
           }
-        };
-      } catch (error) {
-        console.error(`Failed to send to channel ${chatId}:`, error);
-        results.failed++;
-        return null;
-      }
-    });
 
-    // Wait for all messages to be sent
-    const messages = await Promise.all(sendPromises);
-
-    // Create activity record with successful messages
-    if (results.success > 0) {
-      await prisma.activity.create({
-        data: {
-          type: pendingPost.type,
-          originalContent: JSON.stringify(pendingPost.content),
-          messages: {
-            create: messages.filter(msg => msg !== null) as any[]
+          if (messageId) {
+            // Record the successful message in the database
+            await prisma.message.create({
+              data: {
+                activityId: activity.id,
+                channelId: channel.id,
+                messageId: messageId
+              }
+            });
+            successCount++;
+          }
+        } catch (error: any) {
+          errorCount++;
+          console.error(`Failed to send to channel ${channel.chatId}:`, error);
+          
+          // Handle specific error cases
+          if (error.response) {
+            // Channel or group has been upgraded to supergroup
+            if (error.response.error_code === 400 && 
+                error.response.description === 'Bad Request: group chat was upgraded to a supergroup chat' &&
+                error.response.parameters?.migrate_to_chat_id) {
+              
+              // Mark for migration
+              outdatedChannels.push({
+                id: channel.id,
+                oldChatId: channel.chatId,
+                newChatId: error.response.parameters.migrate_to_chat_id.toString(),
+                action: 'migrate'
+              });
+              needCleanup = true;
+            }
+            // Bot was kicked or doesn't have admin rights
+            else if (
+              (error.response.error_code === 403 && error.response.description.includes('bot was kicked')) ||
+              (error.response.error_code === 400 && error.response.description.includes('need administrator rights'))
+            ) {
+              // Mark for deactivation
+              outdatedChannels.push({
+                id: channel.id,
+                oldChatId: channel.chatId,
+                action: 'deactivate'
+              });
+              needCleanup = true;
+            }
           }
         }
-      });
+      }
     }
 
-    // Send final status
-    await ctx.reply(
+    // Process any channel migrations or deactivations
+    if (needCleanup && outdatedChannels.length > 0) {
+      let migratedCount = 0;
+      let deactivatedCount = 0;
+
+      for (const channel of outdatedChannels) {
+        try {
+          if (channel.action === 'migrate') {
+            // Update the channel with the new chat ID
+            await prisma.channel.update({
+              where: { id: channel.id },
+              data: { chatId: channel.newChatId }
+            });
+            migratedCount++;
+          } else if (channel.action === 'deactivate') {
+            // Mark the channel as inactive
+            await prisma.channel.update({
+              where: { id: channel.id },
+              data: { isActive: false }
+            });
+            deactivatedCount++;
+          }
+        } catch (dbError) {
+          console.error('Error updating channel in database:', dbError);
+        }
+      }
+
+      console.log(`Channel cleanup completed: Migrated ${migratedCount}, Deactivated ${deactivatedCount}`);
+    }
+
+    // Calculate final statistics
+    const totalChannels = channels.length;
+    const successRate = totalChannels > 0 ? Math.round((successCount / totalChannels) * 100) : 0;
+    const completionTime = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    // Send final status message
+    await ctx.telegram.editMessageText(
+      ctx.chat!.id,
+      statusMessage.message_id,
+      undefined,
       `✅ Yuborish yakunlandi!\n\n` +
-      `Muvaffaqiyatli yuborildi: ${results.success} ta kanal\n` +
-      `Yuborilmadi: ${results.failed} ta kanal\n` +
-      `Jami kanallar: ${results.total}\n\n` +
-      (results.failed > 0 ? '⚠️ Ba\'zi xabarlar limit yoki kanal cheklovlari tufayli yuborilmadi.' : '🎉 Barcha xabarlar muvaffaqiyatli yuborildi!')
+      `📊 Statistika:\n` +
+      `• Jami kanallar: ${totalChannels}\n` +
+      `• Muvaffaqiyatli: ${successCount} (${successRate}%)\n` +
+      `• Xatoliklar: ${errorCount}\n` +
+      `• Sarflangan vaqt: ${completionTime} soniya\n\n` +
+      (needCleanup ? `⚠️ Ba'zi kanallar zamonaviy o'zgargan yoki bot olib tashlangan. Kanal ro'yxati yangilandi.` : '') +
+      `\n\nFaoliyat tarixini ko'rish uchun /activities buyrug'ini yuboring.`
     );
 
+    // Clear the pending post
     delete ctx.session.pendingPost;
   } catch (error) {
     console.error('Error in confirmPosting:', error);
-    await ctx.reply('❌ Xabarlarni yuborishda xatolik yuz berdi. Ba\'zi xabarlar yuborilmagan bo\'lishi mumkin.');
+    await ctx.reply('❌ Yuborishda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
   }
 }
 

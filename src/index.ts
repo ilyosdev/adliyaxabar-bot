@@ -29,6 +29,7 @@ const commands = [
   { command: 'post', description: 'Yangi post yaratish' },
   { command: 'channels', description: 'Kanallar ro\'yxatini ko\'rsatish' },
   { command: 'activities', description: 'Faoliyat tarixini ko\'rish' },
+  { command: 'cleanup', description: 'Kanallar ro\'yxatini tekshirish va yangilash' },
 ];
 
 // Set commands in Telegram
@@ -84,6 +85,11 @@ bot.command('channels', async (ctx) => {
 bot.command('activities', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await activityHandler.showActivityLog(ctx);
+});
+
+bot.command('cleanup', async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
+  await channelManagement.handleCleanupCommand(ctx);
 });
 
 // Handle keyboard button presses

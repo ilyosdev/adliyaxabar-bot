@@ -39,7 +39,7 @@ async function showActivityLog(ctx, page = 0) {
             const channelCount = activity.messages.length;
             const date = new Date(activity.createdAt).toLocaleTimeString();
             keyboard.push([
-                telegraf_1.Markup.button.callback(`${activity.type === 'forward' ? '↪️' : '📝'} ${date} • ${escapeMarkdown(previewText)} (${channelCount} ${channelCount === 1 ? 'kanal' : 'kanal'})`, `activity:${activity.id}`)
+                telegraf_1.Markup.button.callback(`${activity.type === 'forward' ? '↪️' : '📝'} ${date} • ${previewText} (${channelCount} ${channelCount === 1 ? 'kanal' : 'kanal'})`, `activity:${activity.id}`)
             ]);
         }
         // Add pagination buttons if needed
@@ -47,19 +47,19 @@ async function showActivityLog(ctx, page = 0) {
             const paginationButtons = [];
             // First page button
             if (page > 0) {
-                paginationButtons.push(telegraf_1.Markup.button.callback('« Boshi', `page:0`));
+                paginationButtons.push(telegraf_1.Markup.button.callback('« Boshi', `activity_page:0`));
             }
             // Previous/Next buttons
             if (page > 0) {
-                paginationButtons.push(telegraf_1.Markup.button.callback('‹ Oldingi', `page:${page - 1}`));
+                paginationButtons.push(telegraf_1.Markup.button.callback('‹ Oldingi', `activity_page:${page - 1}`));
             }
             if ((page + 1) * ITEMS_PER_PAGE < totalActivities) {
-                paginationButtons.push(telegraf_1.Markup.button.callback('Keyingi ›', `page:${page + 1}`));
+                paginationButtons.push(telegraf_1.Markup.button.callback('Keyingi ›', `activity_page:${page + 1}`));
             }
             // Last page button
             const lastPage = Math.ceil(totalActivities / ITEMS_PER_PAGE) - 1;
             if (page < lastPage) {
-                paginationButtons.push(telegraf_1.Markup.button.callback('Oxiri »', `page:${lastPage}`));
+                paginationButtons.push(telegraf_1.Markup.button.callback('Oxiri »', `activity_page:${lastPage}`));
             }
             if (paginationButtons.length > 0) {
                 keyboard.push(paginationButtons);
