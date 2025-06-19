@@ -9,7 +9,7 @@ const BATCH_SIZE = 30; // Process channels in batches
 const CHANNELS_PER_PAGE = 8; // Maximum channels per page
 
 interface PendingPost {
-  type: 'forward' | 'direct';
+  type: 'forward' | 'direct' | 'media_group';
   content: any;
   targetChannels: number[];
   page?: number; // Add page to track pagination
@@ -29,6 +29,8 @@ export async function handleForward(ctx: BotContext) {
       await ctx.reply('Davom etish uchun xabarni forward qiling.');
       return;
     }
+
+
 
     const channels = await prisma.channel.findMany({
       where: { isActive: true }
@@ -59,6 +61,8 @@ export async function handleDirectPost(ctx: BotContext) {
       return;
     }
 
+
+
     const channels = await prisma.channel.findMany({
       where: { isActive: true }
     });
@@ -78,6 +82,32 @@ export async function handleDirectPost(ctx: BotContext) {
   } catch (error) {
     console.error('Error in handleDirectPost:', error);
     await ctx.reply('❌ Xabarni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
+  }
+}
+
+export async function handleMediaGroup(ctx: BotContext, mediaGroup: any) {
+  try {
+
+
+    const channels = await prisma.channel.findMany({
+      where: { isActive: true }
+    });
+
+    if (channels.length === 0) {
+      await ctx.reply('Kanallar mavjud emas. Iltimos, avval meni kanallarga administrator sifatida qo\'shing.');
+      return;
+    }
+
+    ctx.session.pendingPost = {
+      type: 'media_group',
+      content: mediaGroup,
+      targetChannels: channels.map(ch => Number(ch.chatId)) // Select all channels by default
+    };
+
+    await showChannelSelector(ctx);
+  } catch (error) {
+    console.error('Error in handleMediaGroup:', error);
+    await ctx.reply('❌ Media guruhni qayta ishlashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
   }
 }
 
@@ -272,6 +302,8 @@ export async function confirmPosting(ctx: BotContext) {
       }
     });
 
+
+
     // Start sending messages
     let successCount = 0;
     let errorCount = 0;
@@ -328,11 +360,26 @@ export async function confirmPosting(ctx: BotContext) {
               );
             });
             messageId = result.message_id;
+          } else if (pendingPost.type === 'media_group') {
+            // Send media group (album)
+            const mediaGroup = pendingPost.content.media_group.map((media: any, index: number) => ({
+              type: media.type,
+              media: media.media,
+              caption: index === 0 ? pendingPost.content.caption : '', // Only first item gets caption
+              caption_entities: index === 0 ? pendingPost.content.caption_entities : undefined
+            }));
+            
+            const result = await limiter.enqueue<any[]>(() => {
+              return ctx.telegram.sendMediaGroup(Number(channel.chatId), mediaGroup);
+            });
+            messageId = result[0]?.message_id; // Get first message ID
           } else {
             // Direct post (text, photo, etc.)
             if ('text' in pendingPost.content) {
               const result = await limiter.enqueue<{ message_id: number }>(() => {
-                return ctx.telegram.sendMessage(Number(channel.chatId), pendingPost.content.text);
+                return ctx.telegram.sendMessage(Number(channel.chatId), pendingPost.content.text, {
+                  entities: pendingPost.content.entities
+                });
               });
               messageId = result.message_id;
             } else if ('photo' in pendingPost.content) {
@@ -342,7 +389,8 @@ export async function confirmPosting(ctx: BotContext) {
               
               const result = await limiter.enqueue<{ message_id: number }>(() => {
                 return ctx.telegram.sendPhoto(Number(channel.chatId), photo.file_id, {
-                  caption
+                  caption,
+                  caption_entities: pendingPost.content.caption_entities
                 });
               });
               messageId = result.message_id;
@@ -362,7 +410,7 @@ export async function confirmPosting(ctx: BotContext) {
           }
         } catch (error: any) {
           errorCount++;
-          console.error(`Failed to send to channel ${channel.chatId}:`, error);
+          console.error(`Failed to send to channel ${channel.title} (${channel.chatId}):`, error.response?.description || error.message);
           
           // Handle specific error cases
           if (error.response) {

@@ -1,7 +1,7 @@
 import { Context } from 'telegraf';
 
 interface PendingPost {
-  type: 'forward' | 'direct';
+  type: 'forward' | 'direct' | 'media_group';
   content: any;
   targetChannels: number[];
   page?: number;

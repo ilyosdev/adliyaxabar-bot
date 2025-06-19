@@ -22,6 +22,10 @@ interface DbChannel {
 const bot = new Telegraf<BotContext>(process.env.BOT_TOKEN!);
 const prisma = new PrismaClient();
 
+// Media group buffer to handle albums/media groups
+const mediaGroupBuffer = new Map<string, { messages: any[], timeout: NodeJS.Timeout }>();
+const MEDIA_GROUP_TIMEOUT = 1000; // 1 second to collect all media group messages
+
 // Set up bot commands
 const commands = [
   { command: 'start', description: 'Botni ishga tushirish va asosiy menyuni ko\'rsatish' },
@@ -133,6 +137,33 @@ bot.action(/^channel_page:(\d+)$/, (ctx) => {
   return postingHandler.handleChannelSelection(ctx);
 });
 
+// Helper function to process media group
+async function processMediaGroup(ctx: BotContext, messages: any[]) {
+  // Sort messages to ensure correct order
+  messages.sort((a, b) => a.message_id - b.message_id);
+  
+  // Use the first message with a caption, or the first message
+  const mainMessage = messages.find(m => m.caption) || messages[0];
+  
+  // Create media group data
+  const mediaGroup = {
+    ...mainMessage,
+    media_group: messages.map(msg => {
+      if ('photo' in msg) {
+        return {
+          type: 'photo',
+          media: msg.photo[msg.photo.length - 1].file_id, // Get largest photo
+          caption: msg.caption || ''
+        };
+      }
+      // Add other media types if needed (video, document, etc.)
+      return null;
+    }).filter(Boolean)
+  };
+  
+  await postingHandler.handleMediaGroup(ctx, mediaGroup);
+}
+
 // Message handlers - handle these last
 bot.on('message', async (ctx, next) => {
   if (ctx.chat.type !== 'private') return next();
@@ -151,12 +182,48 @@ bot.on('message', async (ctx, next) => {
     }
   }
 
-  // Then handle posting
+  // Handle media groups (albums)
+  if (ctx.message && 'media_group_id' in ctx.message && ctx.message.media_group_id) {
+    const mediaGroupId = ctx.message.media_group_id;
+    
+    if (mediaGroupBuffer.has(mediaGroupId)) {
+      // Add to existing buffer
+      const buffer = mediaGroupBuffer.get(mediaGroupId)!;
+      buffer.messages.push(ctx.message);
+      
+      // Clear and reset timeout
+      clearTimeout(buffer.timeout);
+      buffer.timeout = setTimeout(async () => {
+        const messages = buffer.messages;
+        mediaGroupBuffer.delete(mediaGroupId);
+        await processMediaGroup(ctx, messages);
+      }, MEDIA_GROUP_TIMEOUT);
+    } else {
+      // Create new buffer
+      const timeout = setTimeout(async () => {
+        const buffer = mediaGroupBuffer.get(mediaGroupId);
+        if (buffer) {
+          const messages = buffer.messages;
+          mediaGroupBuffer.delete(mediaGroupId);
+          await processMediaGroup(ctx, messages);
+        }
+      }, MEDIA_GROUP_TIMEOUT);
+      
+      mediaGroupBuffer.set(mediaGroupId, {
+        messages: [ctx.message],
+        timeout
+      });
+    }
+    return;
+  }
+
+  // Handle single forward
   if (ctx.message && 'forward_from_chat' in ctx.message) {
     await postingHandler.handleForward(ctx);
     return;
   }
   
+  // Handle single text/photo message
   if (ctx.message && ('text' in ctx.message || 'photo' in ctx.message)) {
     await postingHandler.handleDirectPost(ctx);
     return;
