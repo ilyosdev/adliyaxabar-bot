@@ -127,6 +127,8 @@ bot.action('back_to_log', activityHandler.handleBackToLog);
 bot.action(/^delete:/, activityHandler.deleteActivity);
 bot.action(/^edit:/, activityHandler.startEdit);
 bot.action(/^remove_channel:/, channelManagement.removeChannel);
+bot.action(/^channels:([a-f0-9-]+)$/, activityHandler.showChannelsList);
+bot.action(/^channels:([a-f0-9-]+):(\d+)$/, activityHandler.showChannelsList);
 bot.action(/^channels:(\d+)$/, channelManagement.handleChannelPagination);
 bot.action(/^activity_page:(\d+)$/, (ctx) => {
   const page = parseInt(ctx.match[1]);

@@ -107,6 +107,12 @@ function escapeMarkdown(text: string): string {
   return text.replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&');
 }
 
+// New function to escape all MarkdownV2 special characters
+function escapeMarkdownV2(text: string): string {
+  // MarkdownV2 special characters that need to be escaped: _*[]()~`>#+=|{}.!-
+  return text.replace(/[_*\[\]()~`>#+=|{}.!-]/g, '\\$&');
+}
+
 export async function handleActivitySelection(ctx: BotContext) {
   try {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
@@ -127,10 +133,11 @@ export async function handleActivitySelection(ctx: BotContext) {
     }
 
     const content = JSON.parse(activity.originalContent);
-    const messageText = escapeMarkdown(content.text || content.caption || 'Media kontent');
-    const channelList = activity.messages.map(msg => 
-      `• ${escapeMarkdown(msg.channel.title)}`
-    ).join('\n');
+    const messageText = escapeMarkdownV2(content.text || content.caption || 'Media kontent');
+    
+    const totalChannels = activity.messages.length;
+    const successfulMessages = activity.messages.length; // All stored messages are successful
+    const successRate = totalChannels > 0 ? 100 : 0;
 
     const keyboard = [];
     const actionRow = [];
@@ -143,6 +150,9 @@ export async function handleActivitySelection(ctx: BotContext) {
       actionRow.push(Markup.button.callback('✏️ Tahrirlash', `edit:${activity.id}`));
     }
 
+    // Show channels button
+    actionRow.push(Markup.button.callback('📋 Kanallar ro\'yxati', `channels:${activity.id}`));
+
     keyboard.push(actionRow);
     
     // Back button in a separate row
@@ -150,25 +160,34 @@ export async function handleActivitySelection(ctx: BotContext) {
       Markup.button.callback('« Orqaga', 'back_to_log')
     ]);
 
-    const messageDate = escapeMarkdown(new Date(activity.createdAt).toLocaleString());
+    const messageDate = escapeMarkdownV2(new Date(activity.createdAt).toLocaleString());
     const messageType = activity.type === 'forward' ? 'Forward qilingan' : 'To\'g\'ridan\\-to\'g\'ri';
     const contentType = 'text' in content ? 'Matn' :
                        'photo' in content ? 'Rasm' :
                        'video' in content ? 'Video' :
                        'document' in content ? 'Fayl' : 'Boshqa';
 
+    // Truncate message content if it's too long
+    const MAX_MESSAGE_LENGTH = 800;
+    let truncatedMessageText = messageText;
+    if (messageText.length > MAX_MESSAGE_LENGTH) {
+      truncatedMessageText = messageText.substring(0, MAX_MESSAGE_LENGTH) + '...';
+    }
+
     const messageContent = [
-      '*📋 Faoliyat Tafsilotlari*',
+      '*📋 Faoliyat Hisoboti*',
       '',
       `*📅 Sana:* ${messageDate}`,
       `*📝 Turi:* ${messageType} xabar`,
       `*📄 Kontent turi:* ${contentType}`,
       '',
-      '*Xabar mazmuni:*',
-      messageText,
+      '*📊 Statistika:*',
+      `• Jami kanallar: ${totalChannels} ta`,
+      `• Muvaffaqiyatli yuborilgan: ${successfulMessages} ta`,
+      `• Muvaffaqiyat darajasi: ${successRate}%`,
       '',
-      '*Yuborilgan kanallar:*',
-      channelList
+      '*💬 Xabar mazmuni:*',
+      truncatedMessageText
     ].join('\n');
 
     try {
@@ -185,19 +204,22 @@ export async function handleActivitySelection(ctx: BotContext) {
       }
     } catch (error) {
       console.error('Error sending formatted message:', error);
-      // Fallback to plain text if Markdown fails
+      
+      // Fallback to plain text
       const plainMessage = [
-        '📋 Faoliyat Tafsilotlari',
+        '📋 Faoliyat Hisoboti',
         '',
         `📅 Sana: ${new Date(activity.createdAt).toLocaleString()}`,
         `📝 Turi: ${messageType} xabar`,
         `📄 Kontent turi: ${contentType}`,
         '',
-        'Xabar mazmuni:',
-        content.text || content.caption || 'Media kontent',
+        '📊 Statistika:',
+        `• Jami kanallar: ${totalChannels} ta`,
+        `• Muvaffaqiyatli yuborilgan: ${successfulMessages} ta`,
+        `• Muvaffaqiyat darajasi: ${successRate}%`,
         '',
-        'Yuborilgan kanallar:',
-        activity.messages.map(msg => `• ${msg.channel.title}`).join('\n')
+        '💬 Xabar mazmuni:',
+        (content.text || content.caption || 'Media kontent').substring(0, 500) + (content.text && content.text.length > 500 ? '...' : '')
       ].join('\n');
 
       if (ctx.callbackQuery.message) {
@@ -358,5 +380,110 @@ export async function handleEdit(ctx: BotContext) {
   } catch (error) {
     console.error('Error in handleEdit:', error);
     await ctx.reply('❌ Xabarlarni tahrirlashda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
+  }
+}
+
+// New function to show channels list with pagination
+export async function showChannelsList(ctx: BotContext) {
+  try {
+    if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
+
+    const activityId = ctx.callbackQuery.data.split(':')[1];
+    const page = parseInt(ctx.callbackQuery.data.split(':')[2] || '0');
+    
+    const activity = await prisma.activity.findUnique({
+      where: { id: activityId },
+      include: { 
+        messages: { 
+          include: { channel: true } 
+        } 
+      }
+    });
+
+    if (!activity) {
+      await ctx.answerCbQuery('Faoliyat topilmadi.');
+      return;
+    }
+
+    const CHANNELS_PER_PAGE = 20;
+    const totalChannels = activity.messages.length;
+    const totalPages = Math.ceil(totalChannels / CHANNELS_PER_PAGE);
+    const startIndex = page * CHANNELS_PER_PAGE;
+    const endIndex = Math.min(startIndex + CHANNELS_PER_PAGE, totalChannels);
+    
+    const channelsOnPage = activity.messages.slice(startIndex, endIndex);
+    const channelList = channelsOnPage.map((msg, index) => 
+      `${startIndex + index + 1}\\. ${escapeMarkdownV2(msg.channel.title)}`
+    ).join('\n');
+
+    const keyboard = [];
+    
+    // Pagination buttons
+    if (totalPages > 1) {
+      const paginationButtons = [];
+      
+      if (page > 0) {
+        paginationButtons.push(
+          Markup.button.callback('‹ Oldingi', `channels:${activityId}:${page - 1}`)
+        );
+      }
+      
+      if (page < totalPages - 1) {
+        paginationButtons.push(
+          Markup.button.callback('Keyingi ›', `channels:${activityId}:${page + 1}`)
+        );
+      }
+      
+      if (paginationButtons.length > 0) {
+        keyboard.push(paginationButtons);
+      }
+    }
+    
+    // Back to activity button
+    keyboard.push([
+      Markup.button.callback('« Faoliyat hisobotiga qaytish', `activity:${activityId}`)
+    ]);
+
+    const activityDate = escapeMarkdownV2(new Date(activity.createdAt).toLocaleString());
+    const messageContent = [
+      '*📋 Kanallar Ro\'yxati*',
+      '',
+      `*Faoliyat:* ${activityDate}`,
+      `*Sahifa:* ${page + 1}/${totalPages}`,
+      `*Ko\'rsatilmoqda:* ${startIndex + 1}\\-${endIndex} / ${totalChannels}`,
+      '',
+      channelList
+    ].join('\n');
+
+    try {
+      await ctx.editMessageText(messageContent, {
+        parse_mode: 'MarkdownV2',
+        ...Markup.inlineKeyboard(keyboard)
+      });
+    } catch (markdownError) {
+      console.error('MarkdownV2 error, falling back to plain text:', markdownError);
+      
+      // Fallback to plain text
+      const plainMessage = [
+        '📋 Kanallar Ro\'yxati',
+        '',
+        `Faoliyat: ${new Date(activity.createdAt).toLocaleString()}`,
+        `Sahifa: ${page + 1}/${totalPages}`,
+        `Ko'rsatilmoqda: ${startIndex + 1}-${endIndex} / ${totalChannels}`,
+        '',
+        channelsOnPage.map((msg, index) => 
+          `${startIndex + index + 1}. ${msg.channel.title}`
+        ).join('\n')
+      ].join('\n');
+
+      await ctx.editMessageText(plainMessage, {
+        ...Markup.inlineKeyboard(keyboard)
+      });
+    }
+
+    await ctx.answerCbQuery();
+  } catch (error) {
+    console.error('Error in showChannelsList:', error);
+    await ctx.answerCbQuery('Kanallar ro\'yxatini yuklashda xatolik yuz berdi.');
   }
 } 
