@@ -25,12 +25,14 @@ declare module 'telegraf/typings/context' {
 
 export async function handleForward(ctx: BotContext) {
   try {
-    if (!ctx.message || !('forward_from_chat' in ctx.message)) {
+    // Check for forwarded message
+    const hasForwardOrigin = ctx.message && 'forward_origin' in ctx.message;
+    const hasLegacyForward = ctx.message && 'forward_from_chat' in ctx.message;
+    
+    if (!ctx.message || (!hasForwardOrigin && !hasLegacyForward)) {
       await ctx.reply('Davom etish uchun xabarni forward qiling.');
       return;
     }
-
-
 
     const channels = await prisma.channel.findMany({
       where: { isActive: true }
@@ -61,8 +63,6 @@ export async function handleDirectPost(ctx: BotContext) {
       return;
     }
 
-
-
     const channels = await prisma.channel.findMany({
       where: { isActive: true }
     });
@@ -87,8 +87,6 @@ export async function handleDirectPost(ctx: BotContext) {
 
 export async function handleMediaGroup(ctx: BotContext, mediaGroup: any) {
   try {
-
-
     const channels = await prisma.channel.findMany({
       where: { isActive: true }
     });
@@ -302,8 +300,6 @@ export async function confirmPosting(ctx: BotContext) {
       }
     });
 
-
-
     // Start sending messages
     let successCount = 0;
     let errorCount = 0;
@@ -341,22 +337,22 @@ export async function confirmPosting(ctx: BotContext) {
           `❌ Xatoliklar: ${errorCount}`
         );
       } catch (error) {
-        console.error('Failed to update status message:', error);
+        // Silently ignore status update errors
       }
 
       for (const channel of batch) {
+        
         try {
           let messageId: number | undefined;
           
           // Copy the message based on type
           if (pendingPost.type === 'forward') {
-            // Forward the message
             const result = await limiter.enqueue<{ message_id: number }>(() => {
               return copySafeMessage(
                 ctx.telegram,
                 Number(channel.chatId),
-                pendingPost.content.forward_from_chat.id,
-                pendingPost.content.message_id
+                ctx.chat!.id, // Copy from the current chat (where the bot received the forward)
+                pendingPost.content.message_id // The forwarded message ID in bot's chat
               );
             });
             messageId = result.message_id;
@@ -410,7 +406,7 @@ export async function confirmPosting(ctx: BotContext) {
           }
         } catch (error: any) {
           errorCount++;
-          console.error(`Failed to send to channel ${channel.title} (${channel.chatId}):`, error.response?.description || error.message);
+          console.error(`Failed to send to ${channel.title}:`, error.response?.description || error.message);
           
           // Handle specific error cases
           if (error.response) {
@@ -448,9 +444,6 @@ export async function confirmPosting(ctx: BotContext) {
 
     // Process any channel migrations or deactivations
     if (needCleanup && outdatedChannels.length > 0) {
-      let migratedCount = 0;
-      let deactivatedCount = 0;
-
       for (const channel of outdatedChannels) {
         try {
           if (channel.action === 'migrate') {
@@ -459,21 +452,17 @@ export async function confirmPosting(ctx: BotContext) {
               where: { id: channel.id },
               data: { chatId: channel.newChatId }
             });
-            migratedCount++;
           } else if (channel.action === 'deactivate') {
             // Mark the channel as inactive
             await prisma.channel.update({
               where: { id: channel.id },
               data: { isActive: false }
             });
-            deactivatedCount++;
           }
         } catch (dbError) {
           console.error('Error updating channel in database:', dbError);
         }
       }
-
-      console.log(`Channel cleanup completed: Migrated ${migratedCount}, Deactivated ${deactivatedCount}`);
     }
 
     // Calculate final statistics
@@ -499,7 +488,7 @@ export async function confirmPosting(ctx: BotContext) {
     // Clear the pending post
     delete ctx.session.pendingPost;
   } catch (error) {
-    console.error('Error in confirmPosting:', error);
+    console.error('❌ Error in confirmPosting:', error);
     await ctx.reply('❌ Yuborishda xatolik yuz berdi. Iltimos, qayta urinib ko\'ring.');
   }
 }
