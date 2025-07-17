@@ -1,12 +1,11 @@
-######### Build #########
 FROM node:lts-alpine3.16 AS build
-RUN apk update && apk add --no-cache openssl1.1-compat libc6-compat
-WORKDIR /home/app/
+RUN apk update && apk add --no-cache libssl3 libc6-compat
+WORKDIR /home/app
 COPY . .
 RUN yarn install --silent && yarn build
 
 FROM node:lts-alpine3.16 AS prod
-RUN apk update && apk add --no-cache openssl1.1-compat libc6-compat
+RUN apk update && apk add --no-cache libssl3 libc6-compat
 COPY --from=build /home/app/package.json package.json
 COPY --from=build /home/app/dist ./dist
 COPY --from=build /home/app/node_modules node_modules
