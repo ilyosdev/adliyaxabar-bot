@@ -5,7 +5,7 @@ WORKDIR /home/app/
 COPY . .
 RUN yarn install --silent && yarn build
 
-FROM node:lts-alpine3.16 AS build
+FROM node:lts-alpine3.16 AS prod
 RUN apk update && apk add --no-cache openssl1.1-compat libc6-compat
 COPY --from=build /home/app/package.json package.json
 COPY --from=build /home/app/dist ./dist
