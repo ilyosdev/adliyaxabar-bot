@@ -10,6 +10,14 @@ interface PendingPost {
 interface SessionData {
   pendingPost?: PendingPost;
   editingActivity?: string;
+  registrationData?: {
+    chatId: number;
+    adminId: number;
+    adminName: string;
+    step: 'region' | 'district' | 'mahallah';
+    regionId?: number;
+    districtId?: number;
+  };
 }
 
 export interface BotContext extends Context {

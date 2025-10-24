@@ -9,14 +9,68 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Region model (Viloyat)
+model Region {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  districts District[]
+  createdAt DateTime   @default(now())
+}
+
+// District model (Tuman)
+model District {
+  id        Int        @id @default(autoincrement())
+  name      String
+  region    Region     @relation(fields: [regionId], references: [id])
+  regionId  Int
+  mahallahs Mahallah[]
+  createdAt DateTime   @default(now())
+
+  @@unique([regionId, name])
+}
+
+// Mahallah model
+model Mahallah {
+  id           Int                    @id @default(autoincrement())
+  name         String
+  district     District               @relation(fields: [districtId], references: [id])
+  districtId   Int
+  population   Int?                   // Optional: population count
+  channels     Channel[]
+  confirmations AdminConfirmation[]
+  createdAt    DateTime               @default(now())
+
+  @@unique([districtId, name])
+}
+
+// Admin confirmations for mahallah selection (2-3 admins can select same mahallah)
+model AdminConfirmation {
+  id          Int       @id @default(autoincrement())
+  mahallah    Mahallah  @relation(fields: [mahallahId], references: [id])
+  mahallahId  Int
+  channel     Channel   @relation(fields: [channelId], references: [id])
+  channelId   Int
+  adminUserId BigInt    // Telegram user ID of the admin who confirmed
+  adminName   String?   // Admin's full name or username
+  confirmedAt DateTime  @default(now())
+
+  @@unique([channelId, adminUserId])
+}
+
 model Channel {
-  id        Int       @id @default(autoincrement())
-  chatId    BigInt    @unique
-  title     String
-  type      String    @default("channel") // "channel" or "group"
-  addedAt   DateTime  @default(now())
-  messages  Message[] @relation("ChannelMessages")
-  isActive  Boolean   @default(true)
+  id                 Int                    @id @default(autoincrement())
+  chatId             BigInt                 @unique
+  title              String
+  type               String                 @default("channel") // "channel" or "group"
+  addedAt            DateTime               @default(now())
+  addedByAdminId     BigInt?                // Who added the bot
+  addedByAdminName   String?
+  mahallah           Mahallah?              @relation(fields: [mahallahId], references: [id])
+  mahallahId         Int?
+  registrationStatus String                 @default("pending") // "pending", "registered", "rejected"
+  messages           Message[]              @relation("ChannelMessages")
+  confirmations      AdminConfirmation[]
+  isActive           Boolean                @default(true)
 }
 
 model Activity {

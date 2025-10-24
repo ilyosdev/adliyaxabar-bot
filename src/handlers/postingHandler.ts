@@ -402,6 +402,7 @@ export async function confirmPosting(ctx: BotContext) {
                 messageId: messageId
               }
             });
+
             successCount++;
           }
         } catch (error: any) {

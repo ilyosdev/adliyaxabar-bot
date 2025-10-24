@@ -2,6 +2,7 @@ import { BotContext } from '../types/context';
 import { PrismaClient } from '@prisma/client';
 import { Chat } from 'telegraf/typings/core/types/typegram';
 import { Markup } from 'telegraf';
+import { escapeMarkdownSimple } from '../utils/markdown';
 
 const prisma = new PrismaClient();
 
@@ -141,10 +142,10 @@ export async function listChannels(ctx: BotContext, page = 0) {
         message += `\n${channel.type === 'channel' ? '📢 Kanallar:' : '👥 Guruhlar:'}\n`;
         currentType = channel.type;
       }
-      message += `• ${channel.title}\n`;
+      message += `• ${escapeMarkdownSimple(channel.title)}\n`;
       keyboard.push([
         Markup.button.callback(
-          `❌ ${channel.title}ni o'chirish`, 
+          `❌ ${channel.title}ni o'chirish`,
           `remove_channel:${channel.chatId}`
         )
       ]);

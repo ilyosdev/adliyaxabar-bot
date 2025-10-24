@@ -12,21 +12,12 @@ import * as dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
-interface DbChannel {
-  id: number;
-  chatId: bigint;
-  title: string;
-  type: string;
-  addedAt: Date;
-  isActive: boolean;
-}
-
 const bot = new Telegraf<BotContext>(process.env.BOT_TOKEN!);
 const prisma = new PrismaClient();
 
-// Media group buffer to handle albums/media groups
+// Media group buffer
 const mediaGroupBuffer = new Map<string, { messages: any[], timeout: NodeJS.Timeout }>();
-const MEDIA_GROUP_TIMEOUT = 1000; // 1 second to collect all media group messages
+const MEDIA_GROUP_TIMEOUT = 1000;
 
 // Set up bot commands
 const commands = [
@@ -39,10 +30,9 @@ const commands = [
   { command: 'register', description: 'Mahallani belgilash (faqat guruhlarda)' },
 ];
 
-// Set commands in Telegram
 bot.telegram.setMyCommands(commands);
 
-// Initialize session with default values
+// Initialize session
 bot.use(session({
   defaultSession: () => ({
     pendingPost: undefined,
@@ -89,7 +79,7 @@ async function showMainMenu(ctx: BotContext) {
     '📢 /channels - Kanallar ro\'yxati\n' +
     '📋 /activities - Faoliyat tarixi\n\n' +
     '*Qo\'llanma:*\n' +
-    '1. "✏️ Yangi Post" tugmasini bosing yoki xabar yuboring\n' +
+    '1. "✏️ Yangi Post" tugmasini bosing\n' +
     '2. Kanallarni tanlang\n' +
     '3. Yuborishni tasdiqlang',
     {
@@ -148,7 +138,7 @@ bot.command('register', async (ctx) => {
   await inGroupReg.handleStartRegistration(ctx);
 });
 
-// Handle keyboard button presses
+// Handle keyboard buttons
 bot.hears('📢 Kanallar', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await channelManagement.listChannels(ctx);
@@ -197,14 +187,18 @@ bot.on('my_chat_member', async (ctx) => {
   }
 });
 
-// Callback queries
+// Callback queries for posting
 bot.action(/^select_channel:/, postingHandler.handleChannelSelection);
 bot.action('confirm_posting', postingHandler.confirmPosting);
 bot.action('cancel_posting', postingHandler.cancelPosting);
+
+// Callback queries for activities
 bot.action(/^activity:/, activityHandler.handleActivitySelection);
 bot.action('back_to_log', activityHandler.handleBackToLog);
 bot.action(/^delete:/, activityHandler.deleteActivity);
 bot.action(/^edit:/, activityHandler.startEdit);
+
+// Callback queries for channels
 bot.action(/^remove_channel:/, channelManagement.removeChannel);
 bot.action(/^channels:([a-f0-9-]+)$/, activityHandler.showChannelsList);
 bot.action(/^channels:([a-f0-9-]+):(\d+)$/, activityHandler.showChannelsList);
@@ -227,59 +221,49 @@ bot.action(/^reg_back_/, inGroupReg.handleBackNavigation);
 
 // Helper function to process media group
 async function processMediaGroup(ctx: BotContext, messages: any[]) {
-  // Sort messages to ensure correct order
   messages.sort((a, b) => a.message_id - b.message_id);
-  
-  // Use the first message with a caption, or the first message
   const mainMessage = messages.find(m => m.caption) || messages[0];
-  
-  // Create media group data
+
   const mediaGroup = {
     ...mainMessage,
     media_group: messages.map(msg => {
       if ('photo' in msg) {
         return {
           type: 'photo',
-          media: msg.photo[msg.photo.length - 1].file_id, // Get largest photo
+          media: msg.photo[msg.photo.length - 1].file_id,
           caption: msg.caption || ''
         };
       }
-      // Add other media types if needed (video, document, etc.)
       return null;
     }).filter(Boolean)
   };
-  
+
   await postingHandler.handleMediaGroup(ctx, mediaGroup);
 }
 
-// Message handlers - handle these last
+// Message handlers
 bot.on('message', async (ctx, next) => {
   if (ctx.chat.type !== 'private') return next();
 
-  // Handle editing activity first
   if ('editingActivity' in ctx.session && ctx.session.editingActivity) {
     await activityHandler.handleEdit(ctx);
     return;
   }
 
-  // Ignore keyboard button messages
   if (ctx.message && 'text' in ctx.message) {
-    const buttonTexts = ['✏️ Yangi Post', '📢 Kanallar', '📋 Faoliyat', 'ℹ️ Yordam'];
+    const buttonTexts = ['✏️ Yangi Post', '📢 Kanallar', '📋 Faoliyat', 'ℹ️ Yordam', '👨‍💼 Admin Panel'];
     if (buttonTexts.includes(ctx.message.text)) {
       return next();
     }
   }
 
-  // Handle media groups (albums)
   if (ctx.message && 'media_group_id' in ctx.message && ctx.message.media_group_id) {
     const mediaGroupId = ctx.message.media_group_id;
-    
+
     if (mediaGroupBuffer.has(mediaGroupId)) {
-      // Add to existing buffer
       const buffer = mediaGroupBuffer.get(mediaGroupId)!;
       buffer.messages.push(ctx.message);
-      
-      // Clear and reset timeout
+
       clearTimeout(buffer.timeout);
       buffer.timeout = setTimeout(async () => {
         const messages = buffer.messages;
@@ -287,7 +271,6 @@ bot.on('message', async (ctx, next) => {
         await processMediaGroup(ctx, messages);
       }, MEDIA_GROUP_TIMEOUT);
     } else {
-      // Create new buffer
       const timeout = setTimeout(async () => {
         const buffer = mediaGroupBuffer.get(mediaGroupId);
         if (buffer) {
@@ -296,7 +279,7 @@ bot.on('message', async (ctx, next) => {
           await processMediaGroup(ctx, messages);
         }
       }, MEDIA_GROUP_TIMEOUT);
-      
+
       mediaGroupBuffer.set(mediaGroupId, {
         messages: [ctx.message],
         timeout
@@ -305,13 +288,11 @@ bot.on('message', async (ctx, next) => {
     return;
   }
 
-  // Handle single forward
   if (ctx.message && 'forward_from_chat' in ctx.message) {
     await postingHandler.handleForward(ctx);
     return;
   }
-  
-  // Handle single text/photo message
+
   if (ctx.message && ('text' in ctx.message || 'photo' in ctx.message)) {
     await postingHandler.handleDirectPost(ctx);
     return;
@@ -320,7 +301,7 @@ bot.on('message', async (ctx, next) => {
   await next();
 });
 
-// Add handler for post command and button
+// Post command handlers
 bot.command('post', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await ctx.reply(
@@ -366,4 +347,4 @@ bot.launch()
 
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM')); 
+process.once('SIGTERM', () => bot.stop('SIGTERM'));

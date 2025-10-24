@@ -4,7 +4,7 @@ import { isAdmin } from './middleware/auth';
 import * as channelManagement from './handlers/channelManagement';
 import * as postingHandler from './handlers/postingHandler';
 import * as activityHandler from './handlers/activityHandler';
-import * as inGroupReg from './handlers/inGroupRegistration';
+import * as safeMahallahReg from './handlers/safeMahallahRegistration';
 import * as adminPanel from './handlers/adminPanel';
 import { PrismaClient } from '@prisma/client';
 import * as dotenv from 'dotenv';
@@ -12,62 +12,38 @@ import * as dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
-interface DbChannel {
-  id: number;
-  chatId: bigint;
-  title: string;
-  type: string;
-  addedAt: Date;
-  isActive: boolean;
-}
-
 const bot = new Telegraf<BotContext>(process.env.BOT_TOKEN!);
 const prisma = new PrismaClient();
 
 // Media group buffer to handle albums/media groups
 const mediaGroupBuffer = new Map<string, { messages: any[], timeout: NodeJS.Timeout }>();
-const MEDIA_GROUP_TIMEOUT = 1000; // 1 second to collect all media group messages
+const MEDIA_GROUP_TIMEOUT = 1000;
 
 // Set up bot commands
 const commands = [
-  { command: 'start', description: 'Botni ishga tushirish' },
-  { command: 'menu', description: 'Asosiy menyu' },
+  { command: 'start', description: 'Botni ishga tushirish va asosiy menyuni ko\'rsatish' },
+  { command: 'menu', description: 'Asosiy menyuni ko\'rsatish' },
   { command: 'post', description: 'Yangi post yaratish' },
-  { command: 'channels', description: 'Kanallar ro\'yxati' },
-  { command: 'activities', description: 'Faoliyat tarixi' },
+  { command: 'channels', description: 'Kanallar ro\'yxatini ko\'rsatish' },
+  { command: 'activities', description: 'Faoliyat tarixini ko\'rish' },
+  { command: 'cleanup', description: 'Kanallar ro\'yxatini tekshirish va yangilash' },
   { command: 'admin', description: 'Admin panel' },
-  { command: 'register', description: 'Mahallani belgilash (faqat guruhlarda)' },
+  { command: 'stats', description: 'Statistika' },
+  { command: 'mahallahs', description: 'Mahallalar holati' },
+  { command: 'report', description: 'Excel hisobot olish' },
 ];
 
-// Set commands in Telegram
 bot.telegram.setMyCommands(commands);
 
-// Initialize session with default values
+// Initialize session
 bot.use(session({
   defaultSession: () => ({
     pendingPost: undefined,
-    editingActivity: undefined
+    editingActivity: undefined,
+    registrationData: undefined
   })
 }));
-
-// Apply isAdmin middleware ONLY to specific commands (not all!)
-const adminCommands = ['menu', 'post', 'channels', 'activities', 'admin', 'stats', 'mahallahs', 'report'];
-
-bot.use(async (ctx, next) => {
-  // Check if this is a command that needs admin auth
-  if (ctx.message && 'text' in ctx.message) {
-    const text = ctx.message.text;
-    const isAdminCommand = adminCommands.some(cmd => text.startsWith(`/${cmd}`));
-
-    if (isAdminCommand) {
-      // Apply admin middleware
-      return isAdmin(ctx, next);
-    }
-  }
-
-  // For other messages, just continue
-  return next();
-});
+bot.use(isAdmin);
 
 // Helper function to show main menu
 async function showMainMenu(ctx: BotContext) {
@@ -99,8 +75,19 @@ async function showMainMenu(ctx: BotContext) {
   );
 }
 
-// Commands
-bot.command('start', showMainMenu);
+// ✅ SAFE: Handle /start with deep link payload
+bot.command('start', async (ctx) => {
+  const payload = ctx.message.text.split(' ')[1];
+
+  if (payload) {
+    const handled = await safeMahallahReg.handleStartWithPayload(ctx, payload);
+    if (handled) return;
+  }
+
+  // Regular start command
+  await showMainMenu(ctx);
+});
+
 bot.command('menu', showMainMenu);
 
 bot.command('channels', async (ctx) => {
@@ -137,15 +124,6 @@ bot.command('mahallahs', async (ctx) => {
 bot.command('report', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await adminPanel.generateExcelReport(ctx);
-});
-
-// Registration command (works in groups only)
-bot.command('register', async (ctx) => {
-  if (ctx.chat.type === 'private') {
-    await ctx.reply('Bu buyruq faqat guruh/kanallarda ishlaydi.');
-    return;
-  }
-  await inGroupReg.handleStartRegistration(ctx);
 });
 
 // Handle keyboard button presses
@@ -188,23 +166,28 @@ bot.hears('📋 Kontent statistikasi', async (ctx) => {
 
 bot.hears('🔙 Orqaga', showMainMenu);
 
-// ✅ PRODUCTION: Bot added to group - simple welcome message
+// ✅ SAFE: Channel management events
 bot.on('my_chat_member', async (ctx) => {
   if (ctx.myChatMember?.new_chat_member.status === 'administrator') {
-    await inGroupReg.handleBotAddedSimple(ctx);
+    // SAFE: Uses deep link system instead of automatic registration
+    await safeMahallahReg.handleBotAddedSafe(ctx);
   } else {
     await channelManagement.handleLeftChat(ctx);
   }
 });
 
-// Callback queries
+// Callback queries for posting
 bot.action(/^select_channel:/, postingHandler.handleChannelSelection);
 bot.action('confirm_posting', postingHandler.confirmPosting);
 bot.action('cancel_posting', postingHandler.cancelPosting);
+
+// Callback queries for activities
 bot.action(/^activity:/, activityHandler.handleActivitySelection);
 bot.action('back_to_log', activityHandler.handleBackToLog);
 bot.action(/^delete:/, activityHandler.deleteActivity);
 bot.action(/^edit:/, activityHandler.startEdit);
+
+// Callback queries for channels
 bot.action(/^remove_channel:/, channelManagement.removeChannel);
 bot.action(/^channels:([a-f0-9-]+)$/, activityHandler.showChannelsList);
 bot.action(/^channels:([a-f0-9-]+):(\d+)$/, activityHandler.showChannelsList);
@@ -218,68 +201,56 @@ bot.action(/^channel_page:(\d+)$/, (ctx) => {
   return postingHandler.handleChannelSelection(ctx);
 });
 
-// ✅ PRODUCTION: In-group registration callbacks
-bot.action('start_registration', inGroupReg.handleStartRegistration);
-bot.action(/^reg_region:/, inGroupReg.handleRegionSelection);
-bot.action(/^reg_district:/, inGroupReg.handleDistrictSelection);
-bot.action(/^reg_mahallah:/, inGroupReg.handleMahallahSelection);
-bot.action(/^reg_back_/, inGroupReg.handleBackNavigation);
+// ✅ SAFE: Mahallah registration callbacks (deep link flow)
+bot.action(/^safe_reg_region:/, safeMahallahReg.handleRegionSelectionSafe);
+bot.action(/^safe_reg_district:/, safeMahallahReg.handleDistrictSelectionSafe);
+bot.action(/^safe_reg_mahallah:/, safeMahallahReg.handleMahallahSelectionSafe);
 
 // Helper function to process media group
 async function processMediaGroup(ctx: BotContext, messages: any[]) {
-  // Sort messages to ensure correct order
   messages.sort((a, b) => a.message_id - b.message_id);
-  
-  // Use the first message with a caption, or the first message
   const mainMessage = messages.find(m => m.caption) || messages[0];
-  
-  // Create media group data
+
   const mediaGroup = {
     ...mainMessage,
     media_group: messages.map(msg => {
       if ('photo' in msg) {
         return {
           type: 'photo',
-          media: msg.photo[msg.photo.length - 1].file_id, // Get largest photo
+          media: msg.photo[msg.photo.length - 1].file_id,
           caption: msg.caption || ''
         };
       }
-      // Add other media types if needed (video, document, etc.)
       return null;
     }).filter(Boolean)
   };
-  
+
   await postingHandler.handleMediaGroup(ctx, mediaGroup);
 }
 
-// Message handlers - handle these last
+// Message handlers
 bot.on('message', async (ctx, next) => {
   if (ctx.chat.type !== 'private') return next();
 
-  // Handle editing activity first
   if ('editingActivity' in ctx.session && ctx.session.editingActivity) {
     await activityHandler.handleEdit(ctx);
     return;
   }
 
-  // Ignore keyboard button messages
   if (ctx.message && 'text' in ctx.message) {
-    const buttonTexts = ['✏️ Yangi Post', '📢 Kanallar', '📋 Faoliyat', 'ℹ️ Yordam'];
+    const buttonTexts = ['✏️ Yangi Post', '📢 Kanallar', '📋 Faoliyat', 'ℹ️ Yordam', '👨‍💼 Admin Panel'];
     if (buttonTexts.includes(ctx.message.text)) {
       return next();
     }
   }
 
-  // Handle media groups (albums)
   if (ctx.message && 'media_group_id' in ctx.message && ctx.message.media_group_id) {
     const mediaGroupId = ctx.message.media_group_id;
-    
+
     if (mediaGroupBuffer.has(mediaGroupId)) {
-      // Add to existing buffer
       const buffer = mediaGroupBuffer.get(mediaGroupId)!;
       buffer.messages.push(ctx.message);
-      
-      // Clear and reset timeout
+
       clearTimeout(buffer.timeout);
       buffer.timeout = setTimeout(async () => {
         const messages = buffer.messages;
@@ -287,7 +258,6 @@ bot.on('message', async (ctx, next) => {
         await processMediaGroup(ctx, messages);
       }, MEDIA_GROUP_TIMEOUT);
     } else {
-      // Create new buffer
       const timeout = setTimeout(async () => {
         const buffer = mediaGroupBuffer.get(mediaGroupId);
         if (buffer) {
@@ -296,7 +266,7 @@ bot.on('message', async (ctx, next) => {
           await processMediaGroup(ctx, messages);
         }
       }, MEDIA_GROUP_TIMEOUT);
-      
+
       mediaGroupBuffer.set(mediaGroupId, {
         messages: [ctx.message],
         timeout
@@ -305,13 +275,11 @@ bot.on('message', async (ctx, next) => {
     return;
   }
 
-  // Handle single forward
   if (ctx.message && 'forward_from_chat' in ctx.message) {
     await postingHandler.handleForward(ctx);
     return;
   }
-  
-  // Handle single text/photo message
+
   if (ctx.message && ('text' in ctx.message || 'photo' in ctx.message)) {
     await postingHandler.handleDirectPost(ctx);
     return;
@@ -320,7 +288,7 @@ bot.on('message', async (ctx, next) => {
   await next();
 });
 
-// Add handler for post command and button
+// Post command handlers
 bot.command('post', async (ctx) => {
   if (ctx.chat.type !== 'private') return;
   await ctx.reply(
@@ -356,9 +324,13 @@ bot.catch((err: any, ctx) => {
 // Start the bot
 bot.launch()
   .then(() => {
-    console.log('✅ Bot started successfully (PRODUCTION)!');
-    console.log('Mode: In-group registration (simple & safe)');
+    console.log('✅ Bot started successfully (SAFE VERSION)!');
     console.log('Admin IDs:', process.env.ADMIN_IDS);
+    console.log('');
+    console.log('⚠️  PRODUCTION MODE:');
+    console.log('   - Deep link registration enabled');
+    console.log('   - No automatic messages to existing groups');
+    console.log('   - Manual migration required for 3100 existing groups');
   })
   .catch((err) => {
     console.error('Failed to start bot:', err);
@@ -366,4 +338,4 @@ bot.launch()
 
 // Enable graceful stop
 process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM')); 
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
