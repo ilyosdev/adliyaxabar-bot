@@ -9,6 +9,16 @@ import { isSuperAdmin } from '../middleware/auth';
 const prisma = new PrismaClient();
 
 /**
+ * Escape HTML special characters
+ */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
  * Show admin panel menu
  */
 export async function showAdminPanel(ctx: BotContext) {
@@ -338,21 +348,43 @@ export async function showContentStatistics(ctx: BotContext, page: number = 1) {
       ? Math.round(totalMessages / totalPosts)
       : 0;
 
-    let message = '*📋 Kontent Statistikasi*\n\n';
-    message += '*📊 Umumiy:*\n';
+    let message = '<b>📋 Kontent Statistikasi</b>\n\n';
+    message += '<b>📊 Umumiy:</b>\n';
     message += `  • Jami postlar: ${totalPosts}\n`;
     message += `  • Jami kanallar: ${totalChannels}\n`;
     message += `  • Jami yuborilgan xabarlar: ${totalMessages}\n`;
     message += `  • O'rtacha kanallar har bir post uchun: ${avgChannelsPerPost}\n\n`;
 
     if (recentPosts.length > 0) {
-      message += `*📅 Oxirgi postlar (${page}/${totalPages}):*\n`;
+      message += `<b>📅 Oxirgi postlar (${page}/${totalPages}):</b>\n`;
       recentPosts.forEach((post, index) => {
-        const preview = post.originalContent.substring(0, 50).replace(/\n/g, ' ');
+        // Parse originalContent JSON to extract actual text
+        let preview = '';
+        try {
+          const content = JSON.parse(post.originalContent);
+          const text = content.text || content.caption || '';
+
+          if (text) {
+            preview = text.substring(0, 80).replace(/\n/g, ' ').trim();
+          } else if (content.photo) {
+            preview = '📷 Rasm';
+          } else if (content.video) {
+            preview = '🎥 Video';
+          } else if (content.audio) {
+            preview = '🎵 Audio' + (content.audio.file_name ? `: ${content.audio.file_name.substring(0, 40)}` : '');
+          } else if (content.document) {
+            preview = '📄 Fayl' + (content.document.file_name ? `: ${content.document.file_name.substring(0, 40)}` : '');
+          } else {
+            preview = 'Media fayl';
+          }
+        } catch {
+          preview = post.originalContent.substring(0, 80).replace(/\n/g, ' ');
+        }
+
         const channelsCount = new Set(post.messages.map(m => m.channelId)).size;
         const date = new Date(post.createdAt).toLocaleDateString('uz-UZ');
         const globalIndex = skip + index + 1;
-        message += `${globalIndex}. ${preview}${post.originalContent.length > 50 ? '...' : ''}\n`;
+        message += `${globalIndex}. ${escapeHtml(preview)}${preview.length >= 80 ? '...' : ''}\n`;
         message += `   📢 ${channelsCount} kanal | 📅 ${date}\n\n`;
       });
     }
@@ -374,11 +406,11 @@ export async function showContentStatistics(ctx: BotContext, page: number = 1) {
       }
 
       await ctx.reply(message, {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...Markup.inlineKeyboard([buttons])
       });
     } else {
-      await ctx.reply(message, { parse_mode: 'Markdown' });
+      await ctx.reply(message, { parse_mode: 'HTML' });
     }
 
   } catch (error) {
@@ -429,21 +461,43 @@ export async function handleContentStatsPagination(ctx: BotContext, page: number
       ? Math.round(totalMessages / totalPosts)
       : 0;
 
-    let message = '*📋 Kontent Statistikasi*\n\n';
-    message += '*📊 Umumiy:*\n';
+    let message = '<b>📋 Kontent Statistikasi</b>\n\n';
+    message += '<b>📊 Umumiy:</b>\n';
     message += `  • Jami postlar: ${totalPosts}\n`;
     message += `  • Jami kanallar: ${totalChannels}\n`;
     message += `  • Jami yuborilgan xabarlar: ${totalMessages}\n`;
     message += `  • O'rtacha kanallar har bir post uchun: ${avgChannelsPerPost}\n\n`;
 
     if (recentPosts.length > 0) {
-      message += `*📅 Oxirgi postlar (${page}/${totalPages}):*\n`;
+      message += `<b>📅 Oxirgi postlar (${page}/${totalPages}):</b>\n`;
       recentPosts.forEach((post, index) => {
-        const preview = post.originalContent.substring(0, 50).replace(/\n/g, ' ');
+        // Parse originalContent JSON to extract actual text
+        let preview = '';
+        try {
+          const content = JSON.parse(post.originalContent);
+          const text = content.text || content.caption || '';
+
+          if (text) {
+            preview = text.substring(0, 80).replace(/\n/g, ' ').trim();
+          } else if (content.photo) {
+            preview = '📷 Rasm';
+          } else if (content.video) {
+            preview = '🎥 Video';
+          } else if (content.audio) {
+            preview = '🎵 Audio' + (content.audio.file_name ? `: ${content.audio.file_name.substring(0, 40)}` : '');
+          } else if (content.document) {
+            preview = '📄 Fayl' + (content.document.file_name ? `: ${content.document.file_name.substring(0, 40)}` : '');
+          } else {
+            preview = 'Media fayl';
+          }
+        } catch {
+          preview = post.originalContent.substring(0, 80).replace(/\n/g, ' ');
+        }
+
         const channelsCount = new Set(post.messages.map(m => m.channelId)).size;
         const date = new Date(post.createdAt).toLocaleDateString('uz-UZ');
         const globalIndex = skip + index + 1;
-        message += `${globalIndex}. ${preview}${post.originalContent.length > 50 ? '...' : ''}\n`;
+        message += `${globalIndex}. ${escapeHtml(preview)}${preview.length >= 80 ? '...' : ''}\n`;
         message += `   📢 ${channelsCount} kanal | 📅 ${date}\n\n`;
       });
     }
@@ -462,7 +516,7 @@ export async function handleContentStatsPagination(ctx: BotContext, page: number
     }
 
     await ctx.editMessageText(message, {
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       ...Markup.inlineKeyboard([buttons])
     });
 
