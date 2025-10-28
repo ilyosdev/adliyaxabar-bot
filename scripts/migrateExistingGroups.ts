@@ -9,8 +9,8 @@ const bot = new Telegraf(process.env.BOT_TOKEN!);
 const prisma = new PrismaClient();
 
 // Configuration
-const BATCH_SIZE = 10; // Start small!
-const DELAY_BETWEEN_MESSAGES = 2000; // 2 seconds
+const BATCH_SIZE = 100; // Start small!
+const DELAY_BETWEEN_MESSAGES = 3000; // 3 seconds
 
 async function migrateGroups() {
   try {
