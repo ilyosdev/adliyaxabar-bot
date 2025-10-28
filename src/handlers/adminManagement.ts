@@ -43,12 +43,12 @@ export async function showAdminManagement(ctx: BotContext) {
       .persistent();
 
     await ctx.reply(
-      '*👨‍💼 Admin Boshqaruvi*\n\n' +
+      '<b>👨‍💼 Admin Boshqaruvi</b>\n\n' +
       'Kerakli bo\'limni tanlang:\n\n' +
-      '💡 *Yangi admin qo\'shish:*\n' +
+      '💡 <b>Yangi admin qo\'shish:</b>\n' +
       'Foydalanuvchi /request_admin buyrug\'ini yuborishi kerak, keyin siz so\'rovni tasdiqlaysiz.',
       {
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         ...keyboard
       }
     );
