@@ -308,6 +308,16 @@ bot.action(/^reject_admin:(.+)$/, (ctx) => {
   return adminRequest.handleRejectRequest(ctx, requestId);
 });
 
+// Content statistics pagination callbacks
+bot.action(/^content_stats:(\d+)$/, (ctx) => {
+  const page = parseInt(ctx.match[1]);
+  return adminPanel.handleContentStatsPagination(ctx, page);
+});
+
+bot.action('content_stats_noop', (ctx) => {
+  return ctx.answerCbQuery();
+});
+
 // Helper function to process media group
 async function processMediaGroup(ctx: BotContext, messages: any[]) {
   // Sort messages to ensure correct order

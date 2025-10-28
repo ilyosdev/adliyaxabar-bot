@@ -301,17 +301,30 @@ export async function generateExcelReport(ctx: BotContext) {
 }
 
 /**
- * Show content statistics
+ * Show content statistics with pagination
  */
-export async function showContentStatistics(ctx: BotContext) {
+export async function showContentStatistics(ctx: BotContext, page: number = 1) {
   try {
     const statusMessage = await ctx.reply('⏳ Statistika yuklanmoqda...');
 
-    // Get recent posts ordered by creation date
+    const postsPerPage = 5;
+    const skip = (page - 1) * postsPerPage;
+
+    // Get total statistics
+    const [totalPosts, totalChannels, totalMessages] = await Promise.all([
+      prisma.activity.count({ where: { isDeleted: false } }),
+      prisma.channel.count({ where: { isActive: true, registrationStatus: 'registered' } }),
+      prisma.message.count()
+    ]);
+
+    const totalPages = Math.ceil(totalPosts / postsPerPage);
+
+    // Get posts for current page
     const recentPosts = await prisma.activity.findMany({
       where: { isDeleted: false },
       orderBy: { createdAt: 'desc' },
-      take: 10,
+      skip: skip,
+      take: postsPerPage,
       include: {
         messages: {
           include: {
@@ -320,13 +333,6 @@ export async function showContentStatistics(ctx: BotContext) {
         }
       }
     });
-
-    // Get total statistics
-    const [totalPosts, totalChannels, totalMessages] = await Promise.all([
-      prisma.activity.count({ where: { isDeleted: false } }),
-      prisma.channel.count({ where: { isActive: true, registrationStatus: 'registered' } }),
-      prisma.message.count()
-    ]);
 
     const avgChannelsPerPost = totalPosts > 0
       ? Math.round(totalMessages / totalPosts)
@@ -340,22 +346,131 @@ export async function showContentStatistics(ctx: BotContext) {
     message += `  • O'rtacha kanallar har bir post uchun: ${avgChannelsPerPost}\n\n`;
 
     if (recentPosts.length > 0) {
-      message += '*📅 Oxirgi postlar:*\n';
-      recentPosts.slice(0, 5).forEach((post, index) => {
+      message += `*📅 Oxirgi postlar (${page}/${totalPages}):*\n`;
+      recentPosts.forEach((post, index) => {
         const preview = post.originalContent.substring(0, 50).replace(/\n/g, ' ');
         const channelsCount = new Set(post.messages.map(m => m.channelId)).size;
         const date = new Date(post.createdAt).toLocaleDateString('uz-UZ');
-        message += `${index + 1}. ${preview}${post.originalContent.length > 50 ? '...' : ''}\n`;
+        const globalIndex = skip + index + 1;
+        message += `${globalIndex}. ${preview}${post.originalContent.length > 50 ? '...' : ''}\n`;
         message += `   📢 ${channelsCount} kanal | 📅 ${date}\n\n`;
       });
     }
 
     await ctx.telegram.deleteMessage(ctx.chat!.id, statusMessage.message_id);
-    await ctx.reply(message, { parse_mode: 'Markdown' });
+
+    // Add pagination buttons if there are multiple pages
+    if (totalPages > 1) {
+      const buttons = [];
+
+      if (page > 1) {
+        buttons.push(Markup.button.callback('◀️ Oldingi', `content_stats:${page - 1}`));
+      }
+
+      buttons.push(Markup.button.callback(`📄 ${page}/${totalPages}`, 'content_stats_noop'));
+
+      if (page < totalPages) {
+        buttons.push(Markup.button.callback('Keyingi ▶️', `content_stats:${page + 1}`));
+      }
+
+      await ctx.reply(message, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([buttons])
+      });
+    } else {
+      await ctx.reply(message, { parse_mode: 'Markdown' });
+    }
 
   } catch (error) {
     console.error('Error in showContentStatistics:', error);
     await ctx.reply('Xatolik yuz berdi');
+  }
+}
+
+/**
+ * Handle content statistics pagination callback
+ */
+export async function handleContentStatsPagination(ctx: BotContext, page: number) {
+  try {
+    const postsPerPage = 5;
+    const skip = (page - 1) * postsPerPage;
+
+    // Get total statistics
+    const [totalPosts, totalChannels, totalMessages] = await Promise.all([
+      prisma.activity.count({ where: { isDeleted: false } }),
+      prisma.channel.count({ where: { isActive: true, registrationStatus: 'registered' } }),
+      prisma.message.count()
+    ]);
+
+    const totalPages = Math.ceil(totalPosts / postsPerPage);
+
+    // Validate page number
+    if (page < 1 || page > totalPages) {
+      await ctx.answerCbQuery('Bunday sahifa mavjud emas');
+      return;
+    }
+
+    // Get posts for current page
+    const recentPosts = await prisma.activity.findMany({
+      where: { isDeleted: false },
+      orderBy: { createdAt: 'desc' },
+      skip: skip,
+      take: postsPerPage,
+      include: {
+        messages: {
+          include: {
+            channel: true
+          }
+        }
+      }
+    });
+
+    const avgChannelsPerPost = totalPosts > 0
+      ? Math.round(totalMessages / totalPosts)
+      : 0;
+
+    let message = '*📋 Kontent Statistikasi*\n\n';
+    message += '*📊 Umumiy:*\n';
+    message += `  • Jami postlar: ${totalPosts}\n`;
+    message += `  • Jami kanallar: ${totalChannels}\n`;
+    message += `  • Jami yuborilgan xabarlar: ${totalMessages}\n`;
+    message += `  • O'rtacha kanallar har bir post uchun: ${avgChannelsPerPost}\n\n`;
+
+    if (recentPosts.length > 0) {
+      message += `*📅 Oxirgi postlar (${page}/${totalPages}):*\n`;
+      recentPosts.forEach((post, index) => {
+        const preview = post.originalContent.substring(0, 50).replace(/\n/g, ' ');
+        const channelsCount = new Set(post.messages.map(m => m.channelId)).size;
+        const date = new Date(post.createdAt).toLocaleDateString('uz-UZ');
+        const globalIndex = skip + index + 1;
+        message += `${globalIndex}. ${preview}${post.originalContent.length > 50 ? '...' : ''}\n`;
+        message += `   📢 ${channelsCount} kanal | 📅 ${date}\n\n`;
+      });
+    }
+
+    // Build pagination buttons
+    const buttons = [];
+
+    if (page > 1) {
+      buttons.push(Markup.button.callback('◀️ Oldingi', `content_stats:${page - 1}`));
+    }
+
+    buttons.push(Markup.button.callback(`📄 ${page}/${totalPages}`, 'content_stats_noop'));
+
+    if (page < totalPages) {
+      buttons.push(Markup.button.callback('Keyingi ▶️', `content_stats:${page + 1}`));
+    }
+
+    await ctx.editMessageText(message, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([buttons])
+    });
+
+    await ctx.answerCbQuery();
+
+  } catch (error) {
+    console.error('Error in handleContentStatsPagination:', error);
+    await ctx.answerCbQuery('Xatolik yuz berdi');
   }
 }
 
