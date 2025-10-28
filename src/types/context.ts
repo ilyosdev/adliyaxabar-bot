@@ -1,13 +1,13 @@
 import { Context } from 'telegraf';
 
-interface PendingPost {
+export interface PendingPost {
   type: 'forward' | 'direct' | 'media_group';
   content: any;
   targetChannels: number[];
   page?: number;
 }
 
-interface SessionData {
+export interface SessionData {
   pendingPost?: PendingPost;
   editingActivity?: string;
   registrationData?: {
@@ -22,4 +22,5 @@ interface SessionData {
 
 export interface BotContext extends Context {
   session: SessionData;
+  adminRole?: string; // 'super_admin' or 'admin'
 } 

@@ -3,6 +3,7 @@ import { BotContext } from '../types/context';
 import { PrismaClient } from '@prisma/client';
 import { copySafeMessage } from '../utils/rateLimiter';
 import { RateLimiter } from '../utils/rateLimiter';
+import { checkAuthorization } from '../middleware/auth';
 
 const prisma = new PrismaClient();
 const BATCH_SIZE = 30; // Process channels in batches
@@ -58,8 +59,24 @@ export async function handleForward(ctx: BotContext) {
 
 export async function handleDirectPost(ctx: BotContext) {
   try {
-    if (!ctx.message || !('text' in ctx.message || 'photo' in ctx.message)) {
-      await ctx.reply('Iltimos, matnli xabar yoki rasm yuboring.');
+    if (!ctx.message) {
+      await ctx.reply('Iltimos, xabar yuboring.');
+      return;
+    }
+
+    // Check if message has any content we can post
+    const hasContent = 'text' in ctx.message ||
+                      'photo' in ctx.message ||
+                      'video' in ctx.message ||
+                      'audio' in ctx.message ||
+                      'voice' in ctx.message ||
+                      'document' in ctx.message ||
+                      'sticker' in ctx.message ||
+                      'animation' in ctx.message ||
+                      'video_note' in ctx.message;
+
+    if (!hasContent) {
+      await ctx.reply('Bu turdagi xabarni yuborish mumkin emas.');
       return;
     }
 
@@ -216,7 +233,14 @@ async function showChannelSelector(ctx: BotContext, page = 0) {
 export async function handleChannelSelection(ctx: BotContext) {
   try {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
-    
+
+    // Authorization check
+    const isAuthorized = await checkAuthorization(ctx);
+    if (!isAuthorized) {
+      await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+      return;
+    }
+
     const [action, value] = ctx.callbackQuery.data.split(':');
 
     // Handle pagination
@@ -261,6 +285,13 @@ export async function handleChannelSelection(ctx: BotContext) {
 
 export async function confirmPosting(ctx: BotContext) {
   try {
+    // Authorization check
+    const isAuthorized = await checkAuthorization(ctx);
+    if (!isAuthorized) {
+      await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+      return;
+    }
+
     if (!ctx.session.pendingPost) {
       await ctx.reply('Post topilmadi. Iltimos, qaytadan boshlang.');
       return;
@@ -370,7 +401,7 @@ export async function confirmPosting(ctx: BotContext) {
             });
             messageId = result[0]?.message_id; // Get first message ID
           } else {
-            // Direct post (text, photo, etc.)
+            // Direct post (text, photo, video, audio, etc.)
             if ('text' in pendingPost.content) {
               const result = await limiter.enqueue<{ message_id: number }>(() => {
                 return ctx.telegram.sendMessage(Number(channel.chatId), pendingPost.content.text, {
@@ -379,15 +410,62 @@ export async function confirmPosting(ctx: BotContext) {
               });
               messageId = result.message_id;
             } else if ('photo' in pendingPost.content) {
-              // Get the largest photo (last in the array)
               const photo = pendingPost.content.photo[pendingPost.content.photo.length - 1];
-              const caption = pendingPost.content.caption || '';
-              
               const result = await limiter.enqueue<{ message_id: number }>(() => {
                 return ctx.telegram.sendPhoto(Number(channel.chatId), photo.file_id, {
-                  caption,
+                  caption: pendingPost.content.caption,
                   caption_entities: pendingPost.content.caption_entities
                 });
+              });
+              messageId = result.message_id;
+            } else if ('video' in pendingPost.content) {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
+                return ctx.telegram.sendVideo(Number(channel.chatId), pendingPost.content.video.file_id, {
+                  caption: pendingPost.content.caption,
+                  caption_entities: pendingPost.content.caption_entities
+                });
+              });
+              messageId = result.message_id;
+            } else if ('audio' in pendingPost.content) {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
+                return ctx.telegram.sendAudio(Number(channel.chatId), pendingPost.content.audio.file_id, {
+                  caption: pendingPost.content.caption,
+                  caption_entities: pendingPost.content.caption_entities
+                });
+              });
+              messageId = result.message_id;
+            } else if ('voice' in pendingPost.content) {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
+                return ctx.telegram.sendVoice(Number(channel.chatId), pendingPost.content.voice.file_id, {
+                  caption: pendingPost.content.caption,
+                  caption_entities: pendingPost.content.caption_entities
+                });
+              });
+              messageId = result.message_id;
+            } else if ('document' in pendingPost.content) {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
+                return ctx.telegram.sendDocument(Number(channel.chatId), pendingPost.content.document.file_id, {
+                  caption: pendingPost.content.caption,
+                  caption_entities: pendingPost.content.caption_entities
+                });
+              });
+              messageId = result.message_id;
+            } else if ('sticker' in pendingPost.content) {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
+                return ctx.telegram.sendSticker(Number(channel.chatId), pendingPost.content.sticker.file_id);
+              });
+              messageId = result.message_id;
+            } else if ('animation' in pendingPost.content) {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
+                return ctx.telegram.sendAnimation(Number(channel.chatId), pendingPost.content.animation.file_id, {
+                  caption: pendingPost.content.caption,
+                  caption_entities: pendingPost.content.caption_entities
+                });
+              });
+              messageId = result.message_id;
+            } else if ('video_note' in pendingPost.content) {
+              const result = await limiter.enqueue<{ message_id: number }>(() => {
+                return ctx.telegram.sendVideoNote(Number(channel.chatId), pendingPost.content.video_note.file_id);
               });
               messageId = result.message_id;
             }
@@ -495,6 +573,13 @@ export async function confirmPosting(ctx: BotContext) {
 }
 
 export async function cancelPosting(ctx: BotContext) {
+  // Authorization check
+  const isAuthorized = await checkAuthorization(ctx);
+  if (!isAuthorized) {
+    await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+    return;
+  }
+
   delete ctx.session.pendingPost;
   await ctx.reply('Yuborish bekor qilindi.');
   await ctx.answerCbQuery();

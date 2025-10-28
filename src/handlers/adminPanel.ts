@@ -4,6 +4,7 @@ import { Markup } from 'telegraf';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
 import * as path from 'path';
+import { isSuperAdmin } from '../middleware/auth';
 
 const prisma = new PrismaClient();
 
@@ -14,13 +15,33 @@ export async function showAdminPanel(ctx: BotContext) {
   try {
     if (ctx.chat?.type !== 'private') return;
 
-    const keyboard = Markup.keyboard([
+    const userId = ctx.from?.id;
+    if (!userId) return;
+
+    // Check user role from database directly
+    const user = await prisma.user.findUnique({
+      where: { id: BigInt(userId) },
+      select: { role: true }
+    });
+
+    const isSuperAdminUser = user?.role === 'super_admin';
+
+    // Build keyboard buttons based on role
+    const buttons = [
       ['📊 Statistika', '🗺️ Mahallalar holati'],
-      ['📥 Excel Hisobot', '📋 Kontent statistikasi'],
-      ['🔙 Orqaga']
-    ])
-    .resize()
-    .persistent();
+      ['📥 Excel Hisobot', '📋 Kontent statistikasi']
+    ];
+
+    // Add admin management button for super admins only
+    if (isSuperAdminUser) {
+      buttons.push(['👥 Admin Boshqaruvi']);
+    }
+
+    buttons.push(['🔙 Orqaga']);
+
+    const keyboard = Markup.keyboard(buttons)
+      .resize()
+      .persistent();
 
     await ctx.reply(
       '*👨‍💼 Admin Panel*\n\n' +

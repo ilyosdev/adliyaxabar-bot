@@ -1,11 +1,14 @@
 import { Telegraf, session, Markup } from 'telegraf';
-import { BotContext } from './types/context';
+import { BotContext, SessionData } from './types/context';
 import { isAdmin } from './middleware/auth';
 import * as channelManagement from './handlers/channelManagement';
 import * as postingHandler from './handlers/postingHandler';
 import * as activityHandler from './handlers/activityHandler';
 import * as inGroupReg from './handlers/inGroupRegistration';
 import * as adminPanel from './handlers/adminPanel';
+import * as adminManagement from './handlers/adminManagement';
+import * as setupAdmin from './handlers/setupAdmin';
+import * as adminRequest from './handlers/adminRequest';
 import { PrismaClient } from '@prisma/client';
 import * as dotenv from 'dotenv';
 
@@ -31,6 +34,8 @@ const MEDIA_GROUP_TIMEOUT = 1000; // 1 second to collect all media group message
 // Set up bot commands
 const commands = [
   { command: 'start', description: 'Botni ishga tushirish' },
+  { command: 'setup_admin', description: 'Super admin o\'rnatish (birinchi marta)' },
+  { command: 'request_admin', description: 'Admin bo\'lish uchun so\'rov yuborish' },
   { command: 'menu', description: 'Asosiy menyu' },
   { command: 'post', description: 'Yangi post yaratish' },
   { command: 'channels', description: 'Kanallar ro\'yxati' },
@@ -44,9 +49,10 @@ bot.telegram.setMyCommands(commands);
 
 // Initialize session with default values
 bot.use(session({
-  defaultSession: () => ({
+  defaultSession: (): SessionData => ({
     pendingPost: undefined,
-    editingActivity: undefined
+    editingActivity: undefined,
+    registrationData: undefined
   })
 }));
 
@@ -69,10 +75,54 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
+// Setup admin command (no auth required - only works once)
+// This must be registered AFTER the middleware
+bot.command('setup_admin', setupAdmin.setupSuperAdmin);
+
+// Admin request command (no auth required - anyone can request)
+bot.command('request_admin', adminRequest.handleAdminRequest);
+
 // Helper function to show main menu
 async function showMainMenu(ctx: BotContext) {
   if (ctx.chat?.type !== 'private') return;
 
+  const userId = ctx.from?.id;
+  if (!userId) return;
+
+  // Check if user is an admin by querying database directly
+  // (ctx.adminRole may not be set if middleware didn't run)
+  const user = await prisma.user.findUnique({
+    where: { id: BigInt(userId) }
+  });
+
+  const isUserAdmin = user && user.isActive;
+
+  // If not admin, show setup instructions
+  if (!isUserAdmin) {
+    // Check if any super admin exists
+    const hasSuperAdmin = await setupAdmin.hasSuperAdmin();
+
+    if (!hasSuperAdmin) {
+      await ctx.reply(
+        '*Kanallar boshqaruv botiga xush kelibsiz!*\n\n' +
+        '🔧 Bot hali sozlanmagan. Siz birinchi foydalanuvchisiz!\n\n' +
+        'Super admin bo\'lish uchun:\n' +
+        '/setup_admin',
+        { parse_mode: 'Markdown' }
+      );
+    } else {
+      await ctx.reply(
+        'Kanallar boshqaruv botiga xush kelibsiz!\n\n' +
+        '⚠️ Siz hali admin sifatida ro\'yxatdan o\'tmagansiz.\n\n' +
+        'Admin bo\'lish uchun so\'rov yuboring:\n' +
+        '/request_admin\n\n' +
+        'Yoki super admin bilan bog\'laning.'
+      );
+    }
+    return;
+  }
+
+  // User is admin - show full menu
   const keyboard = Markup.keyboard([
     ['✏️ Yangi Post'],
     ['📢 Kanallar', '📋 Faoliyat'],
@@ -89,7 +139,7 @@ async function showMainMenu(ctx: BotContext) {
     '📢 /channels - Kanallar ro\'yxati\n' +
     '📋 /activities - Faoliyat tarixi\n\n' +
     '*Qo\'llanma:*\n' +
-    '1. "✏️ Yangi Post" tugmasini bosing yoki xabar yuboring\n' +
+    '1. "✏️ Yangi Post" tugmasini bosing yoki har qanday media yuboring (matn, rasm, video, audio, fayl, va h.k.)\n' +
     '2. Kanallarni tanlang\n' +
     '3. Yuborishni tasdiqlang',
     {
@@ -186,6 +236,22 @@ bot.hears('📋 Kontent statistikasi', async (ctx) => {
   await adminPanel.showContentStatistics(ctx);
 });
 
+// Admin management handlers
+bot.hears('👥 Admin Boshqaruvi', async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
+  await adminManagement.showAdminManagement(ctx);
+});
+
+bot.hears('📋 Adminlar ro\'yxati', async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
+  await adminManagement.showAdminList(ctx);
+});
+
+bot.hears('📨 So\'rovlar', async (ctx) => {
+  if (ctx.chat.type !== 'private') return;
+  await adminRequest.showPendingRequests(ctx);
+});
+
 bot.hears('🔙 Orqaga', showMainMenu);
 
 // ✅ PRODUCTION: Bot added to group - simple welcome message
@@ -225,6 +291,23 @@ bot.action(/^reg_district:/, inGroupReg.handleDistrictSelection);
 bot.action(/^reg_mahallah:/, inGroupReg.handleMahallahSelection);
 bot.action(/^reg_back_/, inGroupReg.handleBackNavigation);
 
+// Admin management callbacks
+bot.action(/^toggle_admin:(.+)$/, (ctx) => {
+  const adminId = ctx.match[1];
+  return adminManagement.toggleAdminStatus(ctx, adminId);
+});
+
+// Admin request callbacks
+bot.action(/^approve_admin:(.+)$/, (ctx) => {
+  const requestId = ctx.match[1];
+  return adminRequest.handleApproveRequest(ctx, requestId);
+});
+
+bot.action(/^reject_admin:(.+)$/, (ctx) => {
+  const requestId = ctx.match[1];
+  return adminRequest.handleRejectRequest(ctx, requestId);
+});
+
 // Helper function to process media group
 async function processMediaGroup(ctx: BotContext, messages: any[]) {
   // Sort messages to ensure correct order
@@ -253,8 +336,8 @@ async function processMediaGroup(ctx: BotContext, messages: any[]) {
 }
 
 // Message handlers - handle these last
-bot.on('message', async (ctx, next) => {
-  if (ctx.chat.type !== 'private') return next();
+bot.on('message', async (ctx: BotContext, next) => {
+  if (ctx.chat?.type !== 'private') return next();
 
   // Handle editing activity first
   if ('editingActivity' in ctx.session && ctx.session.editingActivity) {
@@ -310,9 +393,19 @@ bot.on('message', async (ctx, next) => {
     await postingHandler.handleForward(ctx);
     return;
   }
-  
-  // Handle single text/photo message
-  if (ctx.message && ('text' in ctx.message || 'photo' in ctx.message)) {
+
+  // Handle any media message (text, photo, video, audio, etc.)
+  if (ctx.message && (
+    'text' in ctx.message ||
+    'photo' in ctx.message ||
+    'video' in ctx.message ||
+    'audio' in ctx.message ||
+    'voice' in ctx.message ||
+    'document' in ctx.message ||
+    'sticker' in ctx.message ||
+    'animation' in ctx.message ||
+    'video_note' in ctx.message
+  )) {
     await postingHandler.handleDirectPost(ctx);
     return;
   }
@@ -326,9 +419,13 @@ bot.command('post', async (ctx) => {
   await ctx.reply(
     '*Yangi Post Yaratish*\n\n' +
     'Yubormoqchi bo\'lgan kontentni yuboring:\n' +
-    '• Matnli xabar\n' +
-    '• Rasm (izoh bilan)\n' +
-    '• Boshqa kanaldan forward qilingan post',
+    '• Matn\n' +
+    '• Rasm\n' +
+    '• Video\n' +
+    '• Audio / Ovozli xabar\n' +
+    '• Fayl / Dokument\n' +
+    '• Stiker / GIF\n' +
+    '• Boshqa kanaldan forward',
     { parse_mode: 'Markdown' }
   );
 });
@@ -338,9 +435,13 @@ bot.hears('✏️ Yangi Post', async (ctx) => {
   await ctx.reply(
     '*Yangi Post Yaratish*\n\n' +
     'Yubormoqchi bo\'lgan kontentni yuboring:\n' +
-    '• Matnli xabar\n' +
-    '• Rasm (izoh bilan)\n' +
-    '• Boshqa kanaldan forward qilingan post',
+    '• Matn\n' +
+    '• Rasm\n' +
+    '• Video\n' +
+    '• Audio / Ovozli xabar\n' +
+    '• Fayl / Dokument\n' +
+    '• Stiker / GIF\n' +
+    '• Boshqa kanaldan forward',
     { parse_mode: 'Markdown' }
   );
 });
@@ -355,10 +456,17 @@ bot.catch((err: any, ctx) => {
 
 // Start the bot
 bot.launch()
-  .then(() => {
+  .then(async () => {
     console.log('✅ Bot started successfully (PRODUCTION)!');
     console.log('Mode: In-group registration (simple & safe)');
-    console.log('Admin IDs:', process.env.ADMIN_IDS);
+
+    // Check if super admin exists
+    const hasSuperAdmin = await setupAdmin.hasSuperAdmin();
+    if (!hasSuperAdmin) {
+      console.log('⚠️  No super admin found. Please use /setup_admin command to register the first super admin.');
+    } else {
+      console.log('✅ Super admin configured. Admin management via database.');
+    }
   })
   .catch((err) => {
     console.error('Failed to start bot:', err);

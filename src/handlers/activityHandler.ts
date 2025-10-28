@@ -1,6 +1,7 @@
 import { Markup } from 'telegraf';
 import { BotContext } from '../types/context';
 import { PrismaClient } from '@prisma/client';
+import { checkAuthorization } from '../middleware/auth';
 
 const prisma = new PrismaClient();
 const ITEMS_PER_PAGE = 5;
@@ -116,6 +117,13 @@ function escapeMarkdownV2(text: string): string {
 export async function handleActivitySelection(ctx: BotContext) {
   try {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
+
+    // Authorization check
+    const isAuthorized = await checkAuthorization(ctx);
+    if (!isAuthorized) {
+      await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+      return;
+    }
 
     const activityId = ctx.callbackQuery.data.split(':')[1];
     const activity = await prisma.activity.findUnique({
@@ -243,6 +251,13 @@ export async function handleActivitySelection(ctx: BotContext) {
 
 // Add handler for back button
 export async function handleBackToLog(ctx: BotContext) {
+  // Authorization check
+  const isAuthorized = await checkAuthorization(ctx);
+  if (!isAuthorized) {
+    await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+    return;
+  }
+
   await ctx.answerCbQuery();
   await showActivityLog(ctx);
 }
@@ -250,6 +265,13 @@ export async function handleBackToLog(ctx: BotContext) {
 export async function deleteActivity(ctx: BotContext) {
   try {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
+
+    // Authorization check
+    const isAuthorized = await checkAuthorization(ctx);
+    if (!isAuthorized) {
+      await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+      return;
+    }
 
     const activityId = ctx.callbackQuery.data.split(':')[1];
     const activity = await prisma.activity.findUnique({
@@ -292,6 +314,13 @@ export async function deleteActivity(ctx: BotContext) {
 export async function startEdit(ctx: BotContext) {
   try {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
+
+    // Authorization check
+    const isAuthorized = await checkAuthorization(ctx);
+    if (!isAuthorized) {
+      await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+      return;
+    }
 
     const activityId = ctx.callbackQuery.data.split(':')[1];
     const activity = await prisma.activity.findUnique({
@@ -387,6 +416,13 @@ export async function handleEdit(ctx: BotContext) {
 export async function showChannelsList(ctx: BotContext) {
   try {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
+
+    // Authorization check
+    const isAuthorized = await checkAuthorization(ctx);
+    if (!isAuthorized) {
+      await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+      return;
+    }
 
     const activityId = ctx.callbackQuery.data.split(':')[1];
     const page = parseInt(ctx.callbackQuery.data.split(':')[2] || '0');

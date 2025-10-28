@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { Chat } from 'telegraf/typings/core/types/typegram';
 import { Markup } from 'telegraf';
 import { escapeMarkdownSimple } from '../utils/markdown';
+import { checkAuthorization } from '../middleware/auth';
 
 const prisma = new PrismaClient();
 
@@ -203,6 +204,13 @@ export async function handleChannelPagination(ctx: BotContext) {
 export async function removeChannel(ctx: BotContext) {
   try {
     if (!ctx.callbackQuery || !('data' in ctx.callbackQuery)) return;
+
+    // Authorization check
+    const isAuthorized = await checkAuthorization(ctx);
+    if (!isAuthorized) {
+      await ctx.answerCbQuery('⛔️ Sizda ushbu amalni bajarish huquqi yo\'q.');
+      return;
+    }
 
     const chatId = ctx.callbackQuery.data.split(':')[1];
     const channel = await prisma.channel.findFirst({
