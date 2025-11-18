@@ -114,8 +114,6 @@ async function showMainMenu(ctx: BotContext) {
       await ctx.reply(
         'Kanallar boshqaruv botiga xush kelibsiz!\n\n' +
         '⚠️ Siz hali admin sifatida ro\'yxatdan o\'tmagansiz.\n\n' +
-        'Admin bo\'lish uchun so\'rov yuboring:\n' +
-        '/request_admin\n\n' +
         'Yoki super admin bilan bog\'laning.'
       );
     }
